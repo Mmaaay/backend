@@ -1,12 +1,16 @@
-from fastapi import Depends, FastAPI
-from pymongo import MongoClient
-from controllers import auth_controller , chat_controller
-from utils import startup
-from constants import DB_CONNECTION_STRING
-import uvicorn
 import os
 import sys
+import uvicorn
+from constants import DB_CONNECTION_STRING
+from controllers import auth_controller, chat_controller
+from faissEmbedding.embeddings_manager import state_manager  # Import the state manager
+from fastapi import Depends, FastAPI
+from pymongo import MongoClient
+from utils import startup
 
+# Initialize embeddings at startup
+state_manager.embeddings
+state_manager.vector_store
 
 DEBUG = os.environ.get("DEBUG", "").strip().lower() in {"1", "true", "on", "yes"}
 app = FastAPI(lifespan=startup.DatabaseLifespan.lifespan)
@@ -20,7 +24,7 @@ async def root():
 
 def main(argv=sys.argv[1:]):
     try:
-        uvicorn.run("main:app", host="0.0.0.0", port=80, reload=DEBUG)
+        uvicorn.run("server:app", host="0.0.0.0", port=80, reload=DEBUG)
     except KeyboardInterrupt:
         pass
 

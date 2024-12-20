@@ -3,7 +3,7 @@ from typing import List, Optional
 from models.dto import ChatSession
 from models import Messages
 from repos.chat_repository import ChatRepository, MessageRepository
-from faissEmbedding.app import embed_data , retrieve_embedded_data
+from faissEmbedding.embeddings_manager import embed_data , retrieve_embedded_data
 class ChatService:
     def __init__(self):
         self.chat_repo = ChatRepository()
