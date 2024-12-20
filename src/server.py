@@ -16,7 +16,7 @@ app.include_router(chat_controller.router )
 
 def main(argv=sys.argv[1:]):
     try:
-        uvicorn.run("server:app", host="0.0.0.0", port=3001, reload=DEBUG)
+        uvicorn.run("server:app", host="0.0.0.0", port=80, reload=DEBUG)
     except KeyboardInterrupt:
         pass
 
