@@ -1,19 +1,21 @@
-from langchain_community.vectorstores import FAISS
-import faiss
-from st_pages import Page
-import streamlit as st
+# embeddings_manager.py
+import logging
 import os
 import warnings
-import logging
-from typing import Dict, Any, Optional
 from datetime import datetime
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.docstore.in_memory import InMemoryDocstore
-from langchain.schema import HumanMessage, AIMessage
-from langchain_core.documents import Document
 from pathlib import Path
+from typing import Any, Dict, Optional
+
+import faiss
+import streamlit as st
 import torch
 from faissEmbedding.chat_memory import app, config
+from langchain.schema import AIMessage, HumanMessage
+from langchain_community.docstore.in_memory import InMemoryDocstore
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain_core.documents import Document
+from st_pages import Page
 
 # Configure logging
 logging.basicConfig(
@@ -28,45 +30,63 @@ MODEL_PATH = "sentence-transformers/all-MiniLM-L12-v2"
 
 # Initialize environment and configurations
 warnings.filterwarnings("ignore")
-os.environ["GOOGLE_API_KEY"] = 'AIzaSyDu6JN_L9gojotvFa8ALFgYO3mux9eB3-U'
 
-def get_embeddings() -> HuggingFaceEmbeddings:
-    """Get or initialize HuggingFace embeddings using Streamlit's session state."""
-    if 'hf_embeddings' not in st.session_state:
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        model_kwargs = {'device': device}
-        encode_kwargs = {'normalize_embeddings': False}
-        st.session_state.hf_embeddings = HuggingFaceEmbeddings(
-            model_name=MODEL_PATH,
-            model_kwargs=model_kwargs,
-            encode_kwargs=encode_kwargs
-        )
-        logger.info(f"Initialized new embeddings on device: {device}")
-    return st.session_state.hf_embeddings
+class StateManager:
+    """Manages state for both FastAPI and Streamlit environments"""
+    _instance = None
+    _embeddings = None
+    _vector_store = None
+    _chat_history = {}
 
-def get_vector_store() -> FAISS:
-    """Get or initialize FAISS vector store using Streamlit's session state."""
-    if 'vector_store' not in st.session_state:
-        embeddings = get_embeddings()
-        index = faiss.IndexFlatL2(len(embeddings.embed_query("hello world")))
-        st.session_state.vector_store = FAISS(
-            embedding_function=embeddings,
-            index=index,
-            docstore=InMemoryDocstore(),
-            index_to_docstore_id={}
-        )
-        logger.info("Initialized new vector store")
-    return st.session_state.vector_store
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(StateManager, cls).__new__(cls)
+        return cls._instance
 
-def clear_embeddings_cache():
-    """Clear embeddings and vector store from session state."""
-    if 'hf_embeddings' in st.session_state:
-        del st.session_state.hf_embeddings
-    if 'vector_store' in st.session_state:
-        del st.session_state.vector_store
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    logger.info("Cleared embeddings cache and CUDA memory")
+    @property
+    def embeddings(self):
+        if self._embeddings is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            model_kwargs = {'device': device}
+            encode_kwargs = {'normalize_embeddings': False}
+            self._embeddings = HuggingFaceEmbeddings(
+                model_name=MODEL_PATH,
+                model_kwargs=model_kwargs,
+                encode_kwargs=encode_kwargs
+            )
+            logger.info(f"Initialized new embeddings on device: {device}")
+        return self._embeddings
+
+    @property
+    def vector_store(self):
+        if self._vector_store is None:
+            index = faiss.IndexFlatL2(len(self.embeddings.embed_query("hello world")))
+            self._vector_store = FAISS(
+                embedding_function=self.embeddings,
+                index=index,
+                docstore=InMemoryDocstore(),
+                index_to_docstore_id={}
+            )
+            logger.info("Initialized new vector store")
+        return self._vector_store
+
+    def get_chat_history(self, session_id: str) -> list:
+        return self._chat_history.get(session_id, [])
+
+    def append_chat_history(self, session_id: str, message: dict):
+        if session_id not in self._chat_history:
+            self._chat_history[session_id] = []
+        self._chat_history[session_id].append(message)
+
+    def clear_cache(self):
+        self._embeddings = None
+        self._vector_store = None
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        logger.info("Cleared embeddings cache and CUDA memory")
+
+# Create a singleton instance
+state_manager = StateManager()
 
 def validate_inputs(message: str, session_id: str) -> None:
     """Validate input parameters."""
@@ -84,7 +104,7 @@ def embed_data(message: str, session_id: str) -> Dict[str, Any]:
         validate_inputs(message, session_id)
         logger.info(f"Embedding data for session: {session_id}")
 
-        vector_store = get_vector_store()
+        vector_store = state_manager.vector_store
         
         # Check for existing document
         existing_document = vector_store.docstore.search(session_id)
@@ -129,23 +149,17 @@ def retrieve_embedded_data(message: str, session_id: str) -> Optional[list]:
         validate_inputs(message, session_id)
         logger.info(f"Retrieving data for session: {session_id}")
 
-        embeddings = get_embeddings()
-        
         # Load or use existing vector store
         faiss_store = FAISS.load_local(
             VECTOR_STORE_PATH,
-            embeddings=embeddings,
+            embeddings=state_manager.embeddings,
             allow_dangerous_deserialization=True
-        ) if Path(f"{VECTOR_STORE_PATH}/index.faiss").exists() else get_vector_store()
+        ) if Path(f"{VECTOR_STORE_PATH}/index.faiss").exists() else state_manager.vector_store
 
         retriever = faiss_store.as_retriever()
 
-        # Initialize session state if needed
-        if session_id not in st.session_state:
-            st.session_state[session_id] = []
-
         # Add user message to chat history
-        st.session_state[session_id].append({
+        state_manager.append_chat_history(session_id, {
             "role": "human",
             "content": message,
             "timestamp": str(datetime.now())
@@ -174,27 +188,24 @@ def retrieve_embedded_data(message: str, session_id: str) -> Optional[list]:
         # Process and store AI responses
         for chunk in output:
             if isinstance(chunk, AIMessage):
-                st.session_state[session_id].append({
+                state_manager.append_chat_history(session_id, {
                     "role": "ai",
                     "content": chunk.content,
                     "timestamp": str(datetime.now())
                 })
 
         logger.info(f"Successfully retrieved data for session: {session_id}")
-        return st.session_state[session_id]
+        return state_manager.get_chat_history(session_id)
 
     except Exception as e:
         logger.error(f"Error in retrieve_embedded_data: {str(e)}")
         return None
 
-# Error handling for initialization
+# Initialize the embeddings and vector store
 try:
-    # Initialize session state for embeddings and vector store if needed
-    if 'initialized' not in st.session_state:
-        get_embeddings()
-        get_vector_store()
-        st.session_state.initialized = True
-        logger.info("Successfully initialized application")
+    _ = state_manager.embeddings
+    _ = state_manager.vector_store
+    logger.info("Successfully initialized application")
 except Exception as e:
     logger.error(f"Failed to initialize application: {str(e)}")
     raise
