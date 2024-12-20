@@ -6,6 +6,6 @@ COPY src ./
 
 RUN pip install --no-cache-dir --upgrade -r ./requirements.txt
 
-EXPOSE 3001
+EXPOSE 80
 
-CMD [ "python", "./src/server.py" ]
+CMD [ "python", "src/server.py" ]
