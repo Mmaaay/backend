@@ -8,9 +8,6 @@ import os
 import sys
 from faissEmbedding.app import state_manager  # Import the state manager
 
-# Initialize embeddings at startup
-state_manager.embeddings
-state_manager.vector_store
 
 DEBUG = os.environ.get("DEBUG", "").strip().lower() in {"1", "true", "on", "yes"}
 app = FastAPI(lifespan=startup.DatabaseLifespan.lifespan)
