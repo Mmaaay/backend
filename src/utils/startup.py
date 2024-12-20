@@ -1,47 +1,38 @@
 from fastapi import FastAPI
-from pymongo import MongoClient
-from db.mongo_client import MongoDBClient
-from constants import DB_CONNECTION_STRING, COLLECTION_NAME
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
-from fastapi import FastAPI
+from db.mongo_client import MongoDBClient
+from constants import DB_CONNECTION_STRING
+import logging
+from faissEmbedding.embeddings_manager import state_manager  # Import the state manager
 
-if not DB_CONNECTION_STRING:
-    raise Exception("DB connection string not provided")
 
-# @asynccontextmanager
-# async def lifespan(app: FastAPI):
-#     client = MongoClient(host=DB_CONNECTION_STRING)
-#     database = client['Quran']
-
-#     # Ping the database to check the connection
-#     pong = database.command("ping")
-    
-#     if int(pong["ok"]) != 1:   
-#         client.close()
-#         raise Exception("Cluster connection is not okay!")
-
-#     # Store the database and collection in the app state
-#     app.state.database = database
-#     app.state.quran_collection_user = database.get_collection(COLLECTION_NAME)
-    
-#     yield  # This allows the application to run
-    
-#     client.close()
-
+logger = logging.getLogger(__name__)
 
 class DatabaseLifespan:
     @staticmethod
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    async def lifespan(app: FastAPI):
         try:
-            # Initialize all database connections
+            
+            _ = state_manager.embeddings
+            _ = state_manager.vector_store
+            logger.info("Embeddings and Vector Store initialized successfully.")
+            # Initialize MongoDB connection
             await MongoDBClient.connect()
-            # Add any other initialization here (Redis, Elasticsearch, etc.)
-            
-            yield  # Application runs here
-            
+
+            # Store the database in app state
+            app.state.database = MongoDBClient.get_db()
+            app.state.quran_collection_user = app.state.database.get_collection("users")
+
+            logger.info("Database connected and stored in app state")
+
+            yield  # Application is running here
+
+        except Exception as e:
+            logger.error(f"Error during database connection: {e}")
+            raise
+
         finally:
-            # Cleanup all connections
+            # Cleanup MongoDB client
             await MongoDBClient.close()
-            # Add any other cleanup here
+            logger.info("MongoDB client closed")

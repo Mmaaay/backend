@@ -55,7 +55,10 @@ class StateManager:
                 encode_kwargs=encode_kwargs
             )
             logger.info(f"Initialized new embeddings on device: {device}")
+        else:
+            logger.info("Embeddings already initialized, skipping re-load.")
         return self._embeddings
+
 
     @property
     def vector_store(self):
