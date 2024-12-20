@@ -6,7 +6,6 @@ from constants import DB_CONNECTION_STRING
 import uvicorn
 import os
 import sys
-from faissEmbedding.app import state_manager  # Import the state manager
 
 
 DEBUG = os.environ.get("DEBUG", "").strip().lower() in {"1", "true", "on", "yes"}
