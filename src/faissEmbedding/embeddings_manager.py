@@ -3,7 +3,7 @@ import os
 import warnings
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from threading import Lock
 import gc
 
@@ -14,6 +14,7 @@ from langchain_community.docstore.in_memory import InMemoryDocstore
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
+from transformers import AutoModel, AutoTokenizer
 
 # Configure logging
 logging.basicConfig(
@@ -30,39 +31,22 @@ MAX_MEMORY_USAGE = 0.75  # Maximum memory usage threshold (75%)
 # Initialize environment and configurations
 warnings.filterwarnings("ignore")
 
-class LowMemoryEmbeddings(HuggingFaceEmbeddings):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._model = None
-        self._tokenizer = None
+def create_embeddings():
+    """Create embeddings with optimized memory settings"""
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model_kwargs = {'device': device}
+    encode_kwargs = {'normalize_embeddings': True}
     
-    def _load_model(self):
-        if self._model is None:
-            # Clear any unused memory before loading
-            gc.collect()
-            torch.cuda.empty_cache() if torch.cuda.is_available() else None
-            
-            # Load model with minimal memory footprint
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            model_kwargs = {
-                'device': device,
-                'use_auth_token': None,
-                'trust_remote_code': True,
-            }
-            
-            super().__init__(
-                model_name=MODEL_PATH,
-                model_kwargs=model_kwargs,
-                encode_kwargs={'normalize_embeddings': True}
-            )
+    # Clear memory before loading
+    gc.collect()
+    torch.cuda.empty_cache() if torch.cuda.is_available() else None
     
-    def embed_documents(self, texts):
-        self._load_model()
-        return super().embed_documents(texts)
-    
-    def embed_query(self, text):
-        self._load_model()
-        return super().embed_query(text)
+    logger.info(f"Creating embeddings on device: {device}")
+    return HuggingFaceEmbeddings(
+        model_name=MODEL_PATH,
+        model_kwargs=model_kwargs,
+        encode_kwargs=encode_kwargs
+    )
 
 class StateManager:
     """Memory-efficient state manager for embeddings and vector store"""
@@ -88,12 +72,12 @@ class StateManager:
                     self._chat_history = {}
                     self._initialized = True
 
-    def _check_memory(self):
+    def _check_memory(self) -> bool:
         """Check if memory usage is within acceptable limits"""
         if torch.cuda.is_available():
             memory_allocated = torch.cuda.memory_allocated()
             memory_reserved = torch.cuda.memory_reserved()
-            if memory_allocated / memory_reserved > MAX_MEMORY_USAGE:
+            if memory_reserved > 0 and memory_allocated / memory_reserved > MAX_MEMORY_USAGE:
                 self.clear_cache()
                 return False
         return True
@@ -108,7 +92,7 @@ class StateManager:
                     
                     logger.info("Initializing new embeddings")
                     try:
-                        self._embeddings = LowMemoryEmbeddings()
+                        self._embeddings = create_embeddings()
                         logger.info("Embeddings initialization successful")
                     except Exception as e:
                         logger.error(f"Failed to initialize embeddings: {str(e)}")
@@ -125,9 +109,16 @@ class StateManager:
                     
                     logger.info("Initializing vector store")
                     try:
+                        # Get embeddings first
                         embeddings = self.embeddings
+                        
+                        # Create a sample embedding to get dimensions
                         sample_embedding = embeddings.embed_query("test")
+                        
+                        # Initialize FAISS index
                         index = faiss.IndexFlatL2(len(sample_embedding))
+                        
+                        # Create vector store
                         self._vector_store = FAISS(
                             embedding_function=embeddings,
                             index=index,
@@ -164,6 +155,68 @@ class StateManager:
         if session_id not in self._chat_history:
             self._chat_history[session_id] = []
         self._chat_history[session_id].append(message)
+
+def embed_data(message: str, session_id: str) -> Dict[str, Any]:
+    """Embed data into vector store with error handling"""
+    try:
+        if not message or not isinstance(message, str):
+            raise ValueError("Message must be a non-empty string")
+        if not session_id or not isinstance(session_id, str):
+            raise ValueError("Session ID must be a non-empty string")
+
+        logger.info(f"Embedding data for session: {session_id}")
+        vector_store = state_manager.vector_store
+        
+        document_name = f"document_{session_id}"
+        document = Document(
+            page_content=message,
+            metadata={
+                "source": "user",
+                "id": session_id,
+                "name": document_name,
+                "timestamp": str(datetime.now())
+            }
+        )
+
+        Path(VECTOR_STORE_PATH).mkdir(parents=True, exist_ok=True)
+        vector_store.add_documents(documents=[document], ids=[session_id])
+        vector_store.save_local(VECTOR_STORE_PATH)
+
+        logger.info(f"Successfully embedded data for session: {session_id}")
+        return {"status": "success", "document_name": document_name}
+
+    except Exception as e:
+        logger.error(f"Error in embed_data: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+def retrieve_embedded_data(message: str, session_id: str) -> Optional[list]:
+    """Retrieve embedded data and manage chat history"""
+    try:
+        if not message or not isinstance(message, str):
+            raise ValueError("Message must be a non-empty string")
+        if not session_id or not isinstance(session_id, str):
+            raise ValueError("Session ID must be a non-empty string")
+
+        logger.info(f"Retrieving data for session: {session_id}")
+        
+        # Initialize vector store
+        vector_store = state_manager.vector_store
+        retriever = vector_store.as_retriever()
+
+        # Add message to history
+        state_manager.append_chat_history(session_id, {
+            "role": "human",
+            "content": message,
+            "timestamp": str(datetime.now())
+        })
+
+        # Get relevant documents
+        docs = retriever.get_relevant_documents(query=message)
+        return state_manager.get_chat_history(session_id)
+
+    except Exception as e:
+        logger.error(f"Error in retrieve_embedded_data: {str(e)}")
+        return None
 
 # Create singleton instance
 state_manager = StateManager()
