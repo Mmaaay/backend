@@ -5,7 +5,7 @@ import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
-import threading
+
 import faiss
 import streamlit as st
 import torch
@@ -34,49 +34,43 @@ warnings.filterwarnings("ignore")
 class StateManager:
     """Manages state for both FastAPI and Streamlit environments"""
     _instance = None
-    _lock = threading.Lock()  # Add a lock for thread safety
     _embeddings = None
     _vector_store = None
     _chat_history = {}
-
 
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(StateManager, cls).__new__(cls)
         return cls._instance
 
-
     @property
     def embeddings(self):
         if self._embeddings is None:
-            with self._lock:  # Ensure thread safety during initialization
-                if self._embeddings is None:  # Double-check locking
-                    device = "cuda" if torch.cuda.is_available() else "cpu"
-                    model_kwargs = {'device': device}
-                    encode_kwargs = {'normalize_embeddings': False}
-                    self._embeddings = HuggingFaceEmbeddings(
-                        model_name=MODEL_PATH,
-                        model_kwargs=model_kwargs,
-                        encode_kwargs=encode_kwargs
-                    )
-                    logger.info(f"Initialized new embeddings on device: {device}")
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            model_kwargs = {'device': device}
+            encode_kwargs = {'normalize_embeddings': False}
+            self._embeddings = HuggingFaceEmbeddings(
+                model_name=MODEL_PATH,
+                model_kwargs=model_kwargs,
+                encode_kwargs=encode_kwargs
+            )
+            logger.info(f"Initialized new embeddings on device: {device}")
         else:
             logger.info("Embeddings already initialized, skipping re-load.")
         return self._embeddings
-     
+
+
     @property
     def vector_store(self):
         if self._vector_store is None:
-            with self._lock:  # Ensure thread safety during initialization
-                if self._vector_store is None:  # Double-check locking
-                    index = faiss.IndexFlatL2(len(self.embeddings.embed_query("hello world")))
-                    self._vector_store = FAISS(
-                        embedding_function=self.embeddings,
-                        index=index,
-                        docstore=InMemoryDocstore(),
-                        index_to_docstore_id={}
-                    )
-                    logger.info("Initialized new vector store")
+            index = faiss.IndexFlatL2(len(self.embeddings.embed_query("hello world")))
+            self._vector_store = FAISS(
+                embedding_function=self.embeddings,
+                index=index,
+                docstore=InMemoryDocstore(),
+                index_to_docstore_id={}
+            )
+            logger.info("Initialized new vector store")
         return self._vector_store
 
     def get_chat_history(self, session_id: str) -> list:
