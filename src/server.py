@@ -33,7 +33,7 @@ async def root():
 
 def main(argv=sys.argv[1:]):
     try:
-        uvicorn.run("server:app", port=80, host="0.0.0.0", reload=DEBUG)
+        uvicorn.run("server:app", port=80, host="0.0.0.0", reload=False)
     except Exception as e:
         logger.error(f"Failed to start the server: {str(e)}")
     except KeyboardInterrupt:
