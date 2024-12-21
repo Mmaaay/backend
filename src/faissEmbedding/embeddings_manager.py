@@ -1,4 +1,3 @@
-# embeddings_manager.py
 import logging
 import os
 import warnings
@@ -39,42 +38,66 @@ class StateManager:
     _vector_store = None
     _chat_history = {}
     _embeddings_lock = Lock()
+    _init_lock = Lock()
 
     def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(StateManager, cls).__new__(cls)
-        return cls._instance
+        with cls._init_lock:
+            if cls._instance is None:
+                cls._instance = super(StateManager, cls).__new__(cls)
+                cls._instance._initialized = False
+            return cls._instance
+
+    def __init__(self):
+        if not hasattr(self, '_initialized'):
+            with self._init_lock:
+                if not self._initialized:
+                    self._embeddings = None
+                    self._vector_store = None
+                    self._chat_history = {}
+                    self._embeddings_lock = Lock()
+                    self._initialized = True
 
     @property
     def embeddings(self):
         if self._embeddings is None:
             with self._embeddings_lock:
-                if self._embeddings is not None:
+                if self._embeddings is None:  # Double-check pattern
                     device = "cuda" if torch.cuda.is_available() else "cpu"
+                    logger.info(f"Initializing new embeddings on device: {device}")
                     model_kwargs = {'device': device}
                     encode_kwargs = {'normalize_embeddings': False}
-                    self._embeddings = HuggingFaceEmbeddings(
-                        model_name=MODEL_PATH,
-                        model_kwargs=model_kwargs,
-                        encode_kwargs=encode_kwargs
-                    )
-            logger.info(f"Initialized new embeddings on device: {device}")
-        else:
-            logger.info("Embeddings already initialized, skipping re-load.")
+                    try:
+                        self._embeddings = HuggingFaceEmbeddings(
+                            model_name=MODEL_PATH,
+                            model_kwargs=model_kwargs,
+                            encode_kwargs=encode_kwargs
+                        )
+                        logger.info("Embeddings initialization successful")
+                    except Exception as e:
+                        logger.error(f"Failed to initialize embeddings: {str(e)}")
+                        raise
         return self._embeddings
-
 
     @property
     def vector_store(self):
         if self._vector_store is None:
-            index = faiss.IndexFlatL2(len(self.embeddings.embed_query("hello world")))
-            self._vector_store = FAISS(
-                embedding_function=self.embeddings,
-                index=index,
-                docstore=InMemoryDocstore(),
-                index_to_docstore_id={}
-            )
-            logger.info("Initialized new vector store")
+            with self._embeddings_lock:  # Use the same lock for consistency
+                if self._vector_store is None:  # Double-check pattern
+                    logger.info("Initializing new vector store")
+                    try:
+                        # Ensure embeddings are initialized first
+                        embeddings = self.embeddings
+                        index = faiss.IndexFlatL2(len(embeddings.embed_query("hello world")))
+                        self._vector_store = FAISS(
+                            embedding_function=embeddings,
+                            index=index,
+                            docstore=InMemoryDocstore(),
+                            index_to_docstore_id={}
+                        )
+                        logger.info("Vector store initialization successful")
+                    except Exception as e:
+                        logger.error(f"Failed to initialize vector store: {str(e)}")
+                        raise
         return self._vector_store
 
     def get_chat_history(self, session_id: str) -> list:
@@ -86,11 +109,12 @@ class StateManager:
         self._chat_history[session_id].append(message)
 
     def clear_cache(self):
-        self._embeddings = None
-        self._vector_store = None
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        logger.info("Cleared embeddings cache and CUDA memory")
+        with self._embeddings_lock:
+            self._embeddings = None
+            self._vector_store = None
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            logger.info("Cleared embeddings cache and CUDA memory")
 
 # Create a singleton instance
 state_manager = StateManager()
