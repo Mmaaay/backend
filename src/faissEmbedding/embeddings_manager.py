@@ -206,7 +206,9 @@ def retrieve_embedded_data(message: str, session_id: str) -> Optional[list]:
 
 # Initialize the embeddings and vector store
 try:
+    logger.info("Initializing embeddings")
     _ = state_manager.embeddings
+    logger.info("Initializing vector store")
     _ = state_manager.vector_store
     logger.info("Successfully initialized application")
 except Exception as e:

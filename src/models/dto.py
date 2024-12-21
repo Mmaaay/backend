@@ -1,5 +1,4 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator
-
 from datetime import datetime
 from typing import Optional , Dict, List
 from bson import ObjectId
@@ -9,7 +8,6 @@ from datetime import datetime
 # USER
 class CreateUser(BaseModel):
     name: str
-    surname: str
     email: str
     role: str = "user"
     password: str = Field(..., min_length=4),
@@ -19,7 +17,6 @@ class CreateUser(BaseModel):
 class GetUser(BaseModel):
     id: str = Field(default=None , alias="_id")
     name: str
-    surname: str
     role: str
     email: str
     hashed_password: str
@@ -45,6 +42,7 @@ class UpdateUserPass(BaseModel):
 class changeUserPass(BaseModel):
     
     new_password: str = Field(... , min_length=4)
+    
 # Token
 class Token(BaseModel):
     user_id: str   
@@ -61,12 +59,10 @@ class Token(BaseModel):
     
     
 #chat
-
-
 class ChatSessionBase(BaseModel):
     """Base model for chat session data"""
-    chat_title: str = Field(..., description="Title of the chat session")
-    unique_chat_id:str=Field(...,description="Unique Chat ID")
+    session_title: str = Field(..., description="Title of the chat session")
+    session_id:str=Field(...,description="Unique Chat ID")
     user_id: str = Field(..., description="ID of the user who owns this session")
     created_at: datetime = Field(default_factory=datetime.now, description="Timestamp when the session was created")
     updated_at: Optional[datetime] = Field(default_factory=datetime.now, description="Timestamp when the session was last updated")
@@ -75,37 +71,31 @@ class ChatSessionBase(BaseModel):
 
 class CreateChatSession(ChatSessionBase):
     """Model for creating a new chat session"""
+    user_id : str = Field(..., description="ID of the user who owns this session")
+    session_id : str = Field(..., description="ID of the session")
+    session_title : str = Field(..., description="Title of the session")
     pass
 
-class UpdateChatSession(BaseModel):
-    """Model for updating an existing chat session"""
-    title: Optional[str] = Field(None, description="New title for the session")
-    is_active: Optional[bool] = Field(None, description="Update the active status")
-    metadata: Optional[Dict] = Field(None, description="Updated metadata")
+class createChatSessionResponse(BaseModel):
+    """Model for creating a new chat session"""
+    user_id : str = Field(..., description="ID of the user who owns this session")
+    session_id : str = Field(..., description="ID of the session")
+    session_title : str = Field(..., description="Title of the session")
+    pass
 
-class ChatSession(ChatSessionBase):
-    """Model for a complete chat session with ID"""
-    id: str = Field(..., alias="_id", description="Unique identifier for the session")
+class CreateMessage(BaseModel):
+    """Model for creating a new message"""
+    session_id: str = Field(..., description="ID of the chat session this message belongs to")
+    user_id: str = Field(..., description="ID of the user who sent the message")
+    role: str = Field(..., description="Role of the message sender")
+    content: Dict = Field(..., description="Content of the message")
+    metadata: Dict = Field(default_factory=dict, description="Additional metadata for the message")
 
-    class Config:
-        populate_by_name = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
 
-class ChatSessionResponse(BaseModel):
-    """Model for API responses containing chat session data"""
-    session: ChatSession
-    message_count: Optional[int] = Field(None, description="Number of messages in the session")
-    last_message_at: Optional[datetime] = Field(None, description="Timestamp of the last message")
 
-class ChatSessionList(BaseModel):
-    """Model for listing multiple chat sessions"""
-    sessions: List[ChatSession]
-    total: int = Field(..., description="Total number of sessions")
-    page: Optional[int] = Field(1, description="Current page number")
-    page_size: Optional[int] = Field(50, description="Number of sessions per page")
-    
+
+
+
     
 #messages
 
@@ -114,23 +104,17 @@ from typing import Optional, Dict, List, Union
 from enum import Enum
 
 class MessageRole(str, Enum):
-    """Enum for different types of message roles"""
+    """Enum for sender roles"""
     USER = "user"
     ASSISTANT = "assistant"
-    SYSTEM = "system"
 
-class MessageContentType(str, Enum):
-    """Enum for different types of message content"""
-    TEXT = "text"
-    IMAGE = "image"
-    FILE = "file"
-    CODE = "code"
-    MARKDOWN = "markdown"
+ 
 
 class MessageContent(BaseModel):
     """Model for message content with support for different types"""
-    text: str = Field(..., description="The actual message content")
-    content_type: MessageContentType = Field(default=MessageContentType.TEXT, description="Type of the message content")
+    session_id: str = Field(..., description="ID of the chat session this message belongs to")
+    content: str = Field(..., description="The actual message content")
+    role: MessageRole = Field(..., description="Role of the message sender")
     metadata: Dict = Field(default_factory=dict, description="Additional metadata for the content")
     
     @field_validator('metadata')
@@ -145,7 +129,7 @@ class MessageBase(BaseModel):
     session_id: str = Field(..., description="ID of the chat session this message belongs to")
     user_id: str = Field(..., description="ID of the user who sent the message")
     role: MessageRole = Field(..., description="Role of the message sender")
-    content: MessageContent = Field(..., description="Content of the message")
+    content: str = Field(..., description="Content of the message")
     created_at: datetime = Field(default_factory=datetime.now, description="Timestamp when the message was created")
     updated_at: Optional[datetime] = Field(default_factory=datetime.now, description="Timestamp when the message was last updated")
     parent_id: Optional[str] = Field(None, description="ID of the parent message if this is a reply")
@@ -198,5 +182,4 @@ class MessageAnalytics(BaseModel):
     assistant_message_count: int
     average_response_time: Optional[float]
     session_duration: Optional[float]
-    content_type_distribution: Dict[MessageContentType, int]
     created_at: datetime = Field(default_factory=datetime.now)

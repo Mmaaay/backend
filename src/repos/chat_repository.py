@@ -1,31 +1,33 @@
 from typing import List, Optional
 from datetime import datetime
-from models.dto import ChatSession, Messages
+from models.dto import ChatSessionBase, Messages
 from repos.base_repository import BaseRepository
 from db.collections import Collections
 
-class ChatRepository(BaseRepository[ChatSession]):
+class ChatRepository(BaseRepository[ChatSessionBase]):
     def __init__(self):
-        super().__init__(Collections.chat_sessions(), ChatSession)
+        super().__init__(Collections.chat_sessions(), ChatSessionBase)
     
-    async def create_session(self, user_id: str, chat_title: str , unique_chat_id:str) -> ChatSession:
+    async def create_session(self, user_id: str, session_id: str , session_title:str) -> ChatSessionBase:
         session_data = {
             "user_id": user_id,
-            "chat_title": chat_title,
-            "unique_chat_id": unique_chat_id,
+            "session_title": session_title,
+            "session_id": session_id,
             "created_at": datetime.now(),
             "updated_at": datetime.now(),
             "is_active": True,
             "metadata": {}
         }
-        return await self.create(session_data)
+        user = await self.create(session_data)
+        return user.user_id
+    
     
     async def get_user_sessions(
         self, 
         user_id: str, 
         limit: int = 50,
         skip: int = 0
-    ) -> List[ChatSession]:
+    ) -> List[ChatSessionBase]:
         cursor = self.collection.find(
             {"user_id": user_id}
         ).sort("created_at", -1).skip(skip).limit(limit)
@@ -33,14 +35,14 @@ class ChatRepository(BaseRepository[ChatSession]):
         sessions = []
         async for session in cursor:
             session['_id'] = str(session['_id'])
-            sessions.append(ChatSession(**session))
+            sessions.append(ChatSessionBase(**session))
         return sessions
     
     async def update_title(
         self, 
         session_id: str, 
         title: str
-    ) -> Optional[ChatSession]:
+    ) -> Optional[ChatSessionBase]:
         update_data = {
             "title": title,
             "updated_at": datetime.now()
@@ -50,10 +52,11 @@ class ChatRepository(BaseRepository[ChatSession]):
 class MessageRepository(BaseRepository[Messages]):
     def __init__(self):
         super().__init__(Collections.messages(), Messages)
+        
+    async def get_session(self , session_id:str) :
+        return await self.collection.find_one({"session_id":session_id})
     
-    async def create_message(self, message_data: dict) -> Messages:
-        message_data["created_at"] = datetime.now()
-        message_data["updated_at"] = datetime.now()
+    async def create_message(self, message_data) :
         return await self.create(message_data)
     
     async def get_chat_history(
@@ -72,9 +75,6 @@ class MessageRepository(BaseRepository[Messages]):
             messages.append(Messages(**message))
         return messages
     
-    async def delete_session_messages(self, session_id: str) -> bool:
-        try:
-            result = await self.collection.delete_many({"session_id": session_id})
-            return result.deleted_count > 0
-        except:
-            return False
+  
+        
+        

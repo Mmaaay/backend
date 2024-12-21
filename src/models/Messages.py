@@ -24,7 +24,6 @@ class Messages(BaseModel):
     role: MessageRole
     content: MessageContent
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    parent_message_id: Optional[str] = None  # For threading support
     is_deleted: bool = False
     model_config = {
         "populate_by_name": True,
@@ -39,7 +38,7 @@ class Messages(BaseModel):
         return
 class ChatSession(BaseDBModel):
     user_id: str
-    title: Optional[str] = None
+    sesssion_id:str
+    session_title:str
     is_active: bool = True
-    metadata: Dict = Field(default_factory=dict)
    

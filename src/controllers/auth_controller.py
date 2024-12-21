@@ -1,14 +1,15 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
+from utils.token import create_token, decode_token
 from models import dto
-from services import user_service , jwt_service
+
 from services.user_service import UserService 
 from utils import formating , dependencies 
 from utils.formating import MongoIDConverter
 from models import Users
 from utils.bcrypt_hashing import HashLib
-from constants import SESSION_TIME, COOKIES_KEY_NAME
+from constants import  COOKIES_KEY_NAME
 
 router = APIRouter(
     prefix="/auth",
@@ -18,12 +19,13 @@ router = APIRouter(
 def get_user_service():
     return UserService()
 
-@router.post("/signup", response_model=Users.User ,status_code=status.HTTP_201_CREATED)
-async def signup(user: dto.CreateUser  ,res:Response ,user_service: UserService = Depends(get_user_service)) -> Users.User:
+@router.post("/signup", response_model=str,status_code=status.HTTP_201_CREATED)
+async def signup(user: dto.CreateUser  ,res:Response , user_service: UserService = Depends(get_user_service)) -> Users.User:
     email = user.email
     if not email:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid email")
     email = formating.format_string(user.email)
+    
     if not user.password:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid password")
     password = HashLib.hash(user.password)
@@ -36,56 +38,36 @@ async def signup(user: dto.CreateUser  ,res:Response ,user_service: UserService 
     user = {
         "name": user.name,
         "email": email,
-        "imageUrl": user.imageUrl,
         "role": Users.User.Role.USER,
         "password": password,
         "created_at": datetime.now(),
         "updated_at": datetime.now()
     }
     
-    user = await user_service.create_user(
+    returned_user = await user_service.create_user(
         user
     )
+    print(returned_user)
     
-    exp_date = datetime.now(timezone.utc) + SESSION_TIME
-    token = jwt_service.encode(user.id , user.role , exp_date)
-    res.set_cookie(COOKIES_KEY_NAME, token, expires=exp_date)
-    return user
+    token = create_token({ "id" : returned_user.id , "name": returned_user.name, "email": returned_user.email , "role": returned_user.role})    
+    return token
 
 @router.post("/login", response_model=str , status_code=status.HTTP_200_OK)
-async def login(dto: dto.LoginUser , res: Response, user_service: UserService = Depends(get_user_service)):
+async def login(dto: dto.LoginUser , res: Response, user_service: UserService = Depends(get_user_service)) -> Users.User:
 
-    Now = datetime.now(timezone.utc)
     email = formating.format_string(dto.email)
     user = await user_service.get_user_by_email(email)
     
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    
     if not HashLib.validate(dto.password, user.password):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid password")
     
-    exp_date = Now + SESSION_TIME
-    
-    token = jwt_service.encode(user.id , user.role , exp_date)
-    
-    res.set_cookie(COOKIES_KEY_NAME, token, expires=exp_date)
-    
+    token = create_token({ "id" : user.id , "name": user.name, "email": user.email , "role": user.role})    
+
     return token
 
-@router.get("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(res: Response) -> JSONResponse:
-    res.delete_cookie(COOKIES_KEY_NAME)
-    
-    return JSONResponse(status_code=status.HTTP_204_NO_CONTENT)
-
-@router.get("/validate" , response_model=dto.Token , status_code=status.HTTP_200_OK)
-async def check_session(req:Request , res:Response):
-    token = req.cookies.get(COOKIES_KEY_NAME)
-    data = jwt_service.decode(token)
-    if data is None:
-        res.delete_cookie(COOKIES_KEY_NAME)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-    return data
 
 
 @router.post("/password/update"  , status_code=204 )

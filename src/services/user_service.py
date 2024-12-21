@@ -24,15 +24,12 @@ class UserService:
     
     async def update_password(self, user_id: str, new_password: str) -> None:
         user = await self.get_user_by_id(user_id)
-        print(user)
-        print(user.surname)
         if not user:
             return
         new_pass_hash = HashLib.hash(new_password)
         await self.user_repo.update(
             id=user_id,
             name=user.name,
-            surname=user.surname,
             role=user.role,
             email=user.email,
             password=new_pass_hash
