@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from db.mongo_client import MongoDBClient
-from constants import DB_CONNECTION_STRING
 import logging
 from faissEmbedding.embeddings_manager import state_manager
 from db.supabase import Supabase
@@ -14,23 +13,31 @@ class DatabaseLifespan:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         try:
-            # Initialize embeddings and vector store
-            logger.info("Starting embeddings initialization")
-            embeddings = state_manager.embeddings  # This will trigger initialization
-            vector_store = state_manager.vector_store  # This will trigger initialization
-            logger.info("Embeddings and Vector Store initialized successfully")
+            # Initialize core services
+            logger.info("Starting service initialization")
             
-            # Initialize the supabase client
+            # Initialize MongoDB first (lightweight)
+            await MongoDBClient.connect()
+            app.state.database = MongoDBClient.get_db()
+            app.state.quran_collection_user = app.state.database.get_collection("users")
+            logger.info("MongoDB connected successfully")
+            
+            # Initialize Supabase (lightweight)
             supabase_instance = Supabase(SUPABASE_URL, SUPABASE_KEY)
             client = supabase_instance.get_client()
             app.state.supabase_client = client
             logger.info("Supabase client initialized successfully")
             
-            # Initialize MongoDB connection
-            await MongoDBClient.connect()
-            app.state.database = MongoDBClient.get_db()
-            app.state.quran_collection_user = app.state.database.get_collection("users")
-            logger.info("Database connected and stored in app state")
+            # Initialize embeddings last (heavy operation)
+            try:
+                embeddings = state_manager.embeddings
+                vector_store = state_manager.vector_store
+                logger.info("ML services initialized successfully")
+            except MemoryError:
+                logger.warning("Insufficient memory for ML services - will initialize on demand")
+            except Exception as e:
+                logger.error(f"Error initializing ML services: {str(e)}")
+                # Continue anyway - services will initialize on demand
             
             yield
             
@@ -38,8 +45,7 @@ class DatabaseLifespan:
             logger.error(f"Error during initialization: {str(e)}")
             raise
         finally:
-            # Cleanup
-            await MongoDBClient.close()
-            logger.info("MongoDB client closed")
+            # Cleanup in reverse order
             state_manager.clear_cache()
-            logger.info("Embeddings cache cleared")
+            await MongoDBClient.close()
+            logger.info("Cleanup completed")

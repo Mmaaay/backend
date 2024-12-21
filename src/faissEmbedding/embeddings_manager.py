@@ -5,17 +5,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 from threading import Lock
+import gc
 
 import faiss
-import streamlit as st
 import torch
-from faissEmbedding.chat_memory import app, config
 from langchain.schema import AIMessage, HumanMessage
 from langchain_community.docstore.in_memory import InMemoryDocstore
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
-from st_pages import Page
 
 # Configure logging
 logging.basicConfig(
@@ -27,21 +25,56 @@ logger = logging.getLogger(__name__)
 # Constants
 VECTOR_STORE_PATH = "tafasir_quran_faiss_vectorstore"
 MODEL_PATH = "sentence-transformers/all-MiniLM-L12-v2"
+MAX_MEMORY_USAGE = 0.75  # Maximum memory usage threshold (75%)
 
 # Initialize environment and configurations
 warnings.filterwarnings("ignore")
 
+class LowMemoryEmbeddings(HuggingFaceEmbeddings):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._model = None
+        self._tokenizer = None
+    
+    def _load_model(self):
+        if self._model is None:
+            # Clear any unused memory before loading
+            gc.collect()
+            torch.cuda.empty_cache() if torch.cuda.is_available() else None
+            
+            # Load model with minimal memory footprint
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            model_kwargs = {
+                'device': device,
+                'use_auth_token': None,
+                'trust_remote_code': True,
+                'quantization_config': None if device == "cuda" else {'load_in_8bit': True}
+            }
+            
+            super().__init__(
+                model_name=MODEL_PATH,
+                model_kwargs=model_kwargs,
+                encode_kwargs={'normalize_embeddings': True}
+            )
+    
+    def embed_documents(self, texts):
+        self._load_model()
+        return super().embed_documents(texts)
+    
+    def embed_query(self, text):
+        self._load_model()
+        return super().embed_query(text)
+
 class StateManager:
-    """Manages state for both FastAPI and Streamlit environments"""
+    """Memory-efficient state manager for embeddings and vector store"""
     _instance = None
     _embeddings = None
     _vector_store = None
     _chat_history = {}
-    _embeddings_lock = Lock()
-    _init_lock = Lock()
+    _lock = Lock()
 
     def __new__(cls):
-        with cls._init_lock:
+        with cls._lock:
             if cls._instance is None:
                 cls._instance = super(StateManager, cls).__new__(cls)
                 cls._instance._initialized = False
@@ -49,29 +82,34 @@ class StateManager:
 
     def __init__(self):
         if not hasattr(self, '_initialized'):
-            with self._init_lock:
+            with self._lock:
                 if not self._initialized:
                     self._embeddings = None
                     self._vector_store = None
                     self._chat_history = {}
-                    self._embeddings_lock = Lock()
                     self._initialized = True
+
+    def _check_memory(self):
+        """Check if memory usage is within acceptable limits"""
+        if torch.cuda.is_available():
+            memory_allocated = torch.cuda.memory_allocated()
+            memory_reserved = torch.cuda.memory_reserved()
+            if memory_allocated / memory_reserved > MAX_MEMORY_USAGE:
+                self.clear_cache()
+                return False
+        return True
 
     @property
     def embeddings(self):
         if self._embeddings is None:
-            with self._embeddings_lock:
-                if self._embeddings is None:  # Double-check pattern
-                    device = "cuda" if torch.cuda.is_available() else "cpu"
-                    logger.info(f"Initializing new embeddings on device: {device}")
-                    model_kwargs = {'device': device}
-                    encode_kwargs = {'normalize_embeddings': False}
+            with self._lock:
+                if self._embeddings is None:
+                    if not self._check_memory():
+                        raise MemoryError("Insufficient memory available")
+                    
+                    logger.info("Initializing new embeddings")
                     try:
-                        self._embeddings = HuggingFaceEmbeddings(
-                            model_name=MODEL_PATH,
-                            model_kwargs=model_kwargs,
-                            encode_kwargs=encode_kwargs
-                        )
+                        self._embeddings = LowMemoryEmbeddings()
                         logger.info("Embeddings initialization successful")
                     except Exception as e:
                         logger.error(f"Failed to initialize embeddings: {str(e)}")
@@ -81,13 +119,16 @@ class StateManager:
     @property
     def vector_store(self):
         if self._vector_store is None:
-            with self._embeddings_lock:  # Use the same lock for consistency
-                if self._vector_store is None:  # Double-check pattern
-                    logger.info("Initializing new vector store")
+            with self._lock:
+                if self._vector_store is None:
+                    if not self._check_memory():
+                        raise MemoryError("Insufficient memory available")
+                    
+                    logger.info("Initializing vector store")
                     try:
-                        # Ensure embeddings are initialized first
                         embeddings = self.embeddings
-                        index = faiss.IndexFlatL2(len(embeddings.embed_query("hello world")))
+                        sample_embedding = embeddings.embed_query("test")
+                        index = faiss.IndexFlatL2(len(sample_embedding))
                         self._vector_store = FAISS(
                             embedding_function=embeddings,
                             index=index,
@@ -100,6 +141,23 @@ class StateManager:
                         raise
         return self._vector_store
 
+    def clear_cache(self):
+        """Clear memory cache and release resources"""
+        with self._lock:
+            if self._embeddings is not None:
+                del self._embeddings
+                self._embeddings = None
+            
+            if self._vector_store is not None:
+                del self._vector_store
+                self._vector_store = None
+            
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            
+            logger.info("Cleared cache and released memory")
+
     def get_chat_history(self, session_id: str) -> list:
         return self._chat_history.get(session_id, [])
 
@@ -108,15 +166,7 @@ class StateManager:
             self._chat_history[session_id] = []
         self._chat_history[session_id].append(message)
 
-    def clear_cache(self):
-        with self._embeddings_lock:
-            self._embeddings = None
-            self._vector_store = None
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            logger.info("Cleared embeddings cache and CUDA memory")
-
-# Create a singleton instance
+# Create singleton instance
 state_manager = StateManager()
 
 def validate_inputs(message: str, session_id: str) -> None:
