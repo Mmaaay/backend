@@ -5,6 +5,7 @@ import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
+from threading import Lock
 
 import faiss
 import streamlit as st
@@ -37,6 +38,7 @@ class StateManager:
     _embeddings = None
     _vector_store = None
     _chat_history = {}
+    _embeddings_lock = Lock()
 
     def __new__(cls):
         if cls._instance is None:
@@ -46,14 +48,16 @@ class StateManager:
     @property
     def embeddings(self):
         if self._embeddings is None:
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            model_kwargs = {'device': device}
-            encode_kwargs = {'normalize_embeddings': False}
-            self._embeddings = HuggingFaceEmbeddings(
-                model_name=MODEL_PATH,
-                model_kwargs=model_kwargs,
-                encode_kwargs=encode_kwargs
-            )
+            with self._embeddings_lock:
+                if self._embeddings is not None:
+                    device = "cuda" if torch.cuda.is_available() else "cpu"
+                    model_kwargs = {'device': device}
+                    encode_kwargs = {'normalize_embeddings': False}
+                    self._embeddings = HuggingFaceEmbeddings(
+                        model_name=MODEL_PATH,
+                        model_kwargs=model_kwargs,
+                        encode_kwargs=encode_kwargs
+                    )
             logger.info(f"Initialized new embeddings on device: {device}")
         else:
             logger.info("Embeddings already initialized, skipping re-load.")
