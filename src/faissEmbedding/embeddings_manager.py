@@ -48,7 +48,6 @@ class LowMemoryEmbeddings(HuggingFaceEmbeddings):
                 'device': device,
                 'use_auth_token': None,
                 'trust_remote_code': True,
-                'quantization_config': None if device == "cuda" else {'load_in_8bit': True}
             }
             
             super().__init__(
