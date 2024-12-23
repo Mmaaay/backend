@@ -1,14 +1,14 @@
-from fastapi import APIRouter , status , Request , HTTPException, Depends
-from utils.token import decode_token
-from services.chat_service import ChatService
-import models.dto as dto
-from services import jwt_service
-from constants import COOKIES_KEY_NAME
-from models import Messages
-from uuid import uuid4
-from typing import List
 from datetime import datetime
+from typing import List
+from uuid import uuid4
 
+import models.dto as dto
+from constants import COOKIES_KEY_NAME
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from models import Messages
+from services import jwt_service
+from services.chat_service import ChatService
+from utils.token import decode_token
 
 router = APIRouter(
     prefix="/chat",
@@ -49,10 +49,15 @@ async def send_message(
     session_id: str,
     message: dto.MessageContent,
     chat_service: ChatService = Depends(get_chat_service)
-) :
+):
     # Create message
-    returned_message = await chat_service.create_message(session_id, message.session_id, message.content, message.role)
+    returned_message = await chat_service.create_message(
+        session_id=session_id,
+        user_id=message.session_id,  # Ensure this is the correct user_id
+        content=message.content,
+        role=message.role
+    )
     return returned_message
-    
-    
-    
+
+
+

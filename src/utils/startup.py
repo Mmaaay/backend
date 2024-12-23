@@ -2,9 +2,10 @@ from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from db.mongo_client import MongoDBClient
 import logging
-from faissEmbedding.embeddings_manager import state_manager
+from faissEmbedding.embeddings_manager import state_manager, initialize_services
 from db.supabase import Supabase
 from constants import SUPABASE_URL, SUPABASE_KEY
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +29,12 @@ class DatabaseLifespan:
             app.state.supabase_client = client
             logger.info("Supabase client initialized successfully")
             
-            # Initialize embeddings last (heavy operation)
+            # Initialize embeddings and vector store
             try:
-                embeddings = state_manager.embeddings
-                vector_store = state_manager.vector_store
-                logger.info("ML services initialized successfully")
+                await initialize_services()
+                logger.info("Embeddings and Vector Store initialized successfully.")
+            except Exception as e:
+                logger.error(f"Error initializing embeddings: {str(e)}")
             except MemoryError:
                 logger.warning("Insufficient memory for ML services - will initialize on demand")
             except Exception as e:
@@ -46,6 +48,6 @@ class DatabaseLifespan:
             raise
         finally:
             # Cleanup in reverse order
-            state_manager.clear_cache()
+            await state_manager.clear_cache()
             await MongoDBClient.close()
             logger.info("Cleanup completed")

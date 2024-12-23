@@ -2,7 +2,7 @@ import os
 import sys
 import uvicorn
 from constants import DB_CONNECTION_STRING
-from controllers import auth_controller, chat_controller,supabase_controller
+from controllers import auth_controller, chat_controller, supabase_controller
 from fastapi import Depends, FastAPI
 from pymongo import MongoClient
 from utils import startup
@@ -19,9 +19,7 @@ load_dotenv()
 logger.info("Environment variables loaded")
 
 DEBUG = os.environ.get("DEBUG", "").strip().lower() in {"1", "true", "on", "yes"}
-app = FastAPI(lifespan=startup.DatabaseLifespan.lifespan )
-
-
+app = FastAPI(lifespan=startup.DatabaseLifespan.lifespan)
 
 app.include_router(auth_controller.router)
 app.include_router(chat_controller.router)
@@ -33,7 +31,7 @@ async def root():
 
 def main(argv=sys.argv[1:]):
     try:
-        uvicorn.run("server:app", port=3000, host="0.0.0.0", reload=False)
+        uvicorn.run("server:app", host="0.0.0.0", port=3000, reload=False)
     except Exception as e:
         logger.error(f"Failed to start the server: {str(e)}")
     except KeyboardInterrupt:
