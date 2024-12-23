@@ -68,6 +68,7 @@ langchain==0.3.7
 langchain-community==0.3.7
 langchain-core==0.3.18
 langchain-google-genai==2.0.4
+langchain-huggingface==0.1.2
 langchain-text-splitters==0.3.2
 langgraph==0.2.48
 langgraph-checkpoint==2.0.4
