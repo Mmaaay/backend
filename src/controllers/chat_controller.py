@@ -9,11 +9,15 @@ from models import Messages
 from services import jwt_service
 from services.chat_service import ChatService
 from utils.token import decode_token
+from fastapi.responses import StreamingResponse
+import logging
 
 router = APIRouter(
     prefix="/chat",
     tags=["Chat"],
 )
+
+logger = logging.getLogger(__name__)
 
 def get_chat_service():
     return ChatService()
@@ -50,14 +54,25 @@ async def send_message(
     message: dto.MessageContent,
     chat_service: ChatService = Depends(get_chat_service)
 ):
-    # Create message
-    returned_message = await chat_service.create_message(
-        session_id=session_id,
-        user_id=message.session_id,  # Ensure this is the correct user_id
-        content=message.content,
-        role=message.role
-    )
-    return returned_message
+    logger.info(f"Received message for session_id: {session_id} from user_id: {message.session_id}")
+    
+    # Create message stream
+    async def event_generator():
+        try:
+            async for chunk in chat_service.create_message_stream(
+                session_id=session_id,
+                user_id=message.session_id or session_id,  # Ensure this is the correct user_id
+                content=message.content,
+                role=message.role
+            ):
+                logger.debug(f"Yielding chunk: {chunk}")
+                yield chunk
+        except Exception as e:
+            logger.error(f"Error during event generation: {str(e)}", exc_info=True)
+            yield f"Error: {str(e)}"
+    
+    logger.info(f"Streaming response for session_id: {session_id}")
+    return StreamingResponse(event_generator(), media_type="text/plain")
 
 
 

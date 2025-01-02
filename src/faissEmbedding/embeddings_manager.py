@@ -6,7 +6,7 @@ from datetime import datetime
 from logging import config
 from pathlib import Path
 from threading import Lock
-from typing import Any, Dict, List, Optional, AsyncGenerator
+from typing import Any, Dict, List, Optional
 from langchain_community.docstore.in_memory import InMemoryDocstore
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
@@ -27,9 +27,8 @@ logger = logging.getLogger(__name__)
 
 # Constants
 VECTOR_STORE_DIR = "tafasir_quran_faiss_vectorstore"
-VECTOR_STORE_PATH = Path(VECTOR_STORE_DIR)
-INDEX_PATH = VECTOR_STORE_PATH / "index.faiss"
-MODEL_PATH = "sentence-transformers/all-MiniLM-L12-v2"
+VECTOR_STORE_PATH = Path(VECTOR_STORE_DIR).absolute()  # Use absolute path
+MODEL_PATH = "sentence-transformers/paraphrase-albert-small-v2"
 MAX_MEMORY_USAGE = 0.75  # Maximum memory usage threshold (75%)
 
 # Initialize environment and configurations
@@ -61,6 +60,9 @@ async def create_embeddings():
             encode_kwargs=encode_kwargs
         )
     )
+
+    # Model initialization is handled automatically by HuggingFaceEmbeddings
+    # Remove the manual model initialization as it's not needed
 
     return embeddings
 
@@ -102,8 +104,32 @@ class StateManager:
         logger.info("Initializing vector store")
         try:
             embeddings = await self.get_embeddings()
-            self._vector_store = await load_or_create_vector_store(embeddings)
-            logger.info("Vector store initialization successful")
+            
+            # Try to load existing vector store first
+            if (VECTOR_STORE_PATH / "index.faiss").exists():
+                logger.info("Loading existing vector store")
+                self._vector_store = FAISS.load_local(
+                    folder_path=str(VECTOR_STORE_PATH),
+                    embeddings=embeddings,
+                    allow_dangerous_deserialization=True
+                )
+                logger.info(f"Loaded existing vector store with {len(self._vector_store.docstore._dict)} documents")
+            else:
+                # Create new vector store if none exists
+                logger.info("Creating new vector store")
+                sample_embedding = embeddings.embed_query("test")
+                index = faiss.IndexFlatL2(len(sample_embedding))
+                self._vector_store = FAISS(
+                    embedding_function=embeddings,
+                    index=index,
+                    docstore=InMemoryDocstore(),
+                    index_to_docstore_id={}
+                )
+                # Ensure directory exists before saving
+                VECTOR_STORE_PATH.mkdir(parents=True, exist_ok=True)
+                self._vector_store.save_local(folder_path=str(VECTOR_STORE_PATH))
+                logger.info("Created and saved new vector store")
+
         except Exception as e:
             logger.error(f"Failed to initialize vector store: {str(e)}")
             raise
@@ -134,110 +160,83 @@ class StateManager:
         self._chat_history[session_id].append(message)
 
 
-async def check_duplicate_message(vector_store: FAISS, message: str, session_id: str) -> bool:
-    """Check if message already exists for this session."""
-    search_kwargs = {
-        "k": 1,
-        "filter": lambda metadata: (
-            filter_by_session(metadata, session_id) and 
-            metadata.get("content") == message
-        )
-    }
-    results = vector_store.similarity_search_with_score(message, **search_kwargs)
-    return len(results) > 0
-
-async def embed_data(message: str, session_id: str) -> Dict[str, Any]:
-    """Non-streaming version that uses the streaming implementation"""
-    async for status in embed_data_stream(message, session_id):
-        if status["status"] in ["success", "error"]:
-            return {
-                "status": status["status"],
-                "document_name": f"document_{session_id}",
-                "embedding_status": status["status"]
-            }
-    return {"status": "error", "message": "Unknown error occurred"}
-
-async def embed_system_response(message: str, session_id: str, question: str) -> Dict[str, Any]:
-    """Embed AI system response into vector store."""
+async def embed_data(message: str, session_id: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Embed data into vector store with error handling."""
     try:
         validate_inputs(message, session_id)
-        logger.info(f"Embedding system response for session: {session_id}")
-
-        vector_store = await state_manager.get_vector_store()
+        logger.info(f"Embedding data for session: {session_id}")
         
-        document = Document(
+        vector_store = await state_manager.get_vector_store()
+        timestamp = str(datetime.now())
+        
+        # Create new document
+        new_document = Document(
             page_content=message,
             metadata={
-                "source": "system",
+                "source": "user",
                 "session_id": session_id,
                 "type": "conversation",
-                "timestamp": str(datetime.now()),
-                "is_question": False,
-                "is_response": True,
-                "question_reference": question,
-                "content": message
+                "timestamp": timestamp,
+                "is_question": True,
+                **(metadata or {})
             }
         )
 
-        vector_store.add_documents(documents=[document])
-        vector_store.save_local(folder_path=str(VECTOR_STORE_PATH))
-        logger.info(f"Successfully saved system response to vector store")
-        return {"status": "success", "embedding_status": "success"}
+        # Generate unique ID
+        doc_id = f"document_{session_id}_{timestamp}"
+        
+        try:
+            # Add document and save
+            vector_store.add_documents([new_document], ids=[doc_id])
+            vector_store.save_local(folder_path=str(VECTOR_STORE_PATH))
+            logger.info(f"Added and saved document {doc_id}")
+            logger.debug(f"Total documents in store: {len(vector_store.docstore._dict)}")
+            
+            return {
+                "status": "success",
+                "document_name": doc_id
+            }
+        except Exception as e:
+            logger.error(f"Error adding document: {str(e)}")
+            return {"status": "error", "message": str(e)}
 
     except Exception as e:
-        logger.error(f"Error in embed_system_response: {str(e)}")
-        return {"status": "error", "embedding_status": "error"}
+        logger.error(f"Error in embed_data: {str(e)}")
+        return {"status": "error", "message": str(e)}
 
 
-def filter_by_session(metadata: Dict[str, Any], session_id: str) -> bool:
-    logger.debug(f"Filtering document with session_id: {metadata.get('session_id')}, target session_id: {session_id}")
-    return metadata.get("session_id") == session_id
-
-
-async def retrieve_embedded_data(message: str, session_id: str) -> Optional[List[dict]]:
+async def retrieve_embedded_data(message: Optional[str], session_id: str) -> Optional[List[dict]]:
     """Retrieve embedded data and manage chat history."""
     try:
         validate_inputs(message, session_id)
         logger.info(f"Retrieving data for session: {session_id}")
 
-        # Load vector store if exists
-        if (VECTOR_STORE_PATH / "index.faiss").exists():
-            embeddings = await state_manager.get_embeddings()
-            vector_store = FAISS.load_local(
-                folder_path=str(VECTOR_STORE_PATH),
-                embeddings=embeddings,
-                allow_dangerous_deserialization=True
-            )
-        else:
-            vector_store = await state_manager.get_vector_store()
-
+        vector_store = await state_manager.get_vector_store()
+        
         # Get all documents for the session
         all_docs = []
         for doc_id, doc in vector_store.docstore._dict.items():
             if doc.metadata.get("session_id") == session_id:
                 doc.metadata["id"] = doc_id
-                if doc.metadata.get("is_response"):
-                    doc.metadata["type"] = "answer"
-                elif doc.metadata.get("is_question"):
-                    doc.metadata["type"] = "question"
                 all_docs.append(doc)
-
-        # Sort documents by timestamp
+        
+        # Sort by timestamp
         sorted_docs = sorted(
             all_docs,
             key=lambda x: datetime.fromisoformat(x.metadata.get("timestamp", "1970-01-01")),
-            reverse=True
+            reverse=True  # Most recent first
         )
-
+        
+        # Format documents
         formatted_docs = []
         for doc in sorted_docs:
             formatted_docs.append({
                 "content": doc.page_content,
                 "metadata": doc.metadata,
-                "type": "history"  # Keep as history for backwards compatibility
+                "type": "history"
             })
         
-        logger.debug(f"Retrieved history for session {session_id}: {formatted_docs}")
+        logger.info(f"Retrieved {len(formatted_docs)} documents for session {session_id}")
         return formatted_docs
 
     except Exception as e:
@@ -245,16 +244,17 @@ async def retrieve_embedded_data(message: str, session_id: str) -> Optional[List
         return None
 
 
-def validate_inputs(message: str, session_id: str) -> None:
+def validate_inputs(message: Optional[str], session_id: str) -> None:
     """Validate input parameters."""
-    if not message or not isinstance(message, str):
-        raise ValueError("Message must be a non-empty string")
     if not session_id or not isinstance(session_id, str):
         raise ValueError("Session ID must be a non-empty string")
+    if message is not None and not isinstance(message, str):
+        raise ValueError("Message must be a string")
 
 
 # Create singleton instance
 state_manager = StateManager()
+logger.info("Initializing embeddings")
 
 # Initialize the embeddings and vector store asynchronously
 async def initialize_services():
@@ -262,102 +262,17 @@ async def initialize_services():
         logger.info("Initializing embeddings")
         await state_manager.get_embeddings()
         logger.info("Initializing vector store")
-        # Optionally reset the vector store on startup
-        # await reset_vector_store()  # Uncomment to reset on startup
         await state_manager.get_vector_store()
         logger.info("Successfully initialized application")
     except Exception as e:
         logger.error(f"Failed to initialize application: {str(e)}")
         raise
 # It's assumed that initialize_services is called during the application's startup
-
-def check_directory_exists():
-    """Ensure vector store directory exists."""
-    VECTOR_STORE_PATH.mkdir(parents=True, exist_ok=True)
-    logger.info(f"Vector store directory checked: {VECTOR_STORE_PATH}")
-
-async def reset_vector_store():
-    """Clear the vector store and its files."""
-    try:
-        # Delete the vector store files
-        if VECTOR_STORE_PATH.exists():
-            for file in VECTOR_STORE_PATH.glob('*'):
-                file.unlink()
-            VECTOR_STORE_PATH.rmdir()
-            logger.info("Vector store directory cleared")
-        
-        # Reset the state manager's vector store
-        await state_manager.clear_cache()
-        return True
+        await state_manager.get_embeddings()
+        logger.info("Initializing vector store")
+        await state_manager.get_vector_store()
+        logger.info("Successfully initialized application")
     except Exception as e:
-        logger.error(f"Error resetting vector store: {str(e)}")
-        return False
-
-async def load_or_create_vector_store(embeddings) -> FAISS:
-    """Load existing vector store or create new one."""
-    try:
-        # Create directory if it doesn't exist
-        VECTOR_STORE_PATH.mkdir(parents=True, exist_ok=True)
-        
-        if (VECTOR_STORE_PATH / "index.faiss").exists():
-            logger.info("Loading existing vector store")
-            vector_store = FAISS.load_local(
-                folder_path=str(VECTOR_STORE_PATH),
-                embeddings=embeddings,
-                allow_dangerous_deserialization=True
-            )
-            # Debug log all documents
-            for doc_id, doc in vector_store.docstore._dict.items():
-                logger.debug(f"Loaded document: {doc_id}")
-                logger.debug(f"Content: {doc.page_content}")
-                logger.debug(f"Metadata: {doc.metadata}")
-            
-            logger.info(f"Loaded {len(vector_store.docstore._dict)} documents from store")
-            return vector_store
-        else:
-            logger.info("Creating new vector store")
-            sample_embedding = embeddings.embed_query("test")
-            index = faiss.IndexFlatL2(len(sample_embedding))
-            vector_store = FAISS(
-                embedding_function=embeddings,
-                index=index,
-                docstore=InMemoryDocstore(),
-                index_to_docstore_id={}
-            )
-            logger.info("Created new empty vector store")
-            return vector_store
-    except Exception as e:
-        logger.error(f"Error in load_or_create_vector_store: {str(e)}")
+        logger.error(f"Failed to initialize application: {str(e)}")
         raise
-
-async def embed_data_stream(message: str, session_id: str) -> AsyncGenerator[Dict[str, Any], None]:
-    """Stream the embedding process"""
-    try:
-        validate_inputs(message, session_id)
-        yield {"status": "starting", "message": "Beginning embedding process"}
-
-        vector_store = await state_manager.get_vector_store()
-        yield {"status": "processing", "message": "Retrieved vector store"}
-
-        document = Document(
-            page_content=message,
-            metadata={
-                "source": "user",
-                "session_id": session_id,
-                "type": "conversation",
-                "timestamp": str(datetime.now()),
-                "is_question": True,
-                "content": message
-            }
-        )
-
-        vector_store.add_documents(documents=[document])
-        yield {"status": "processing", "message": "Added document to vector store"}
-
-        check_directory_exists()
-        vector_store.save_local(folder_path=str(VECTOR_STORE_PATH))
-        yield {"status": "success", "message": "Successfully saved to vector store"}
-
-    except Exception as e:
-        logger.error(f"Error in embed_data_stream: {str(e)}")
-        yield {"status": "error", "message": str(e)}
+# It's assumed that initialize_services is called during the application's startup
