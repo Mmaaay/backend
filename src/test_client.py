@@ -1,4 +1,3 @@
-
 import asyncio
 import socketio
 
@@ -13,12 +12,18 @@ async def main():
         async def ai_response(data):
             print(f"Received AI response chunk: {data['chunk']}")
 
-        # Join a room with a specific session_id if necessary
+        @sio.event
+        async def joined(data):
+            print(f"Joined room: {data['message']}")
+
+        # Join a room with a specific session_id
         session_id = 'test_session'
         await sio.emit('join', {'session_id': session_id})
+        print(f"Sent join request for session_id: {session_id}")
 
         # Send a message to the server
         await sio.emit('message', {'session_id': session_id, 'content': 'Hello AI'})
+        print("Sent message: 'Hello AI'")
 
         # Keep the client running to listen for incoming messages
         await sio.wait()

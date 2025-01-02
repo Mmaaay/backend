@@ -4,18 +4,14 @@ from uuid import uuid4
 
 import models.dto as dto
 from constants import COOKIES_KEY_NAME
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, status
 from models import Messages
 from services import jwt_service
 from services.chat_service import ChatService
 from utils.token import decode_token
 from fastapi.responses import StreamingResponse
 import logging
-
-router = APIRouter(
-    prefix="/chat",
-    tags=["Chat"],
-)
+from .router import chat_router as router  # Import the router instance
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +69,39 @@ async def send_message(
     
     logger.info(f"Streaming response for session_id: {session_id}")
     return StreamingResponse(event_generator(), media_type="text/plain")
+
+
+@router.post("/send")
+async def send_message(message: str, session_id: str):
+    try:
+        from services.chat_service import ChatService  # Deferred import
+        chat_service = ChatService()
+        response = await chat_service.create_message(
+            session_id=session_id,
+            user_id="user_id_example",  # Replace with actual user ID retrieval
+            content=message,
+            role="user"  # Replace with actual role if different
+        )
+        return response
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/stream")
+async def stream_message(message: str, session_id: str):
+    try:
+        from services.chat_service import ChatService  # Deferred import
+        chat_service = ChatService()
+        async def message_stream():
+            async for chunk in chat_service.create_message_stream(
+                session_id=session_id,
+                user_id="user_id_example",  # Replace with actual user ID retrieval
+                content=message,
+                role="user"  # Replace with actual role if different
+            ):
+                yield chunk
+        return {"stream": message_stream()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 
