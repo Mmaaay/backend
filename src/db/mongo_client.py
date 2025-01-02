@@ -1,54 +1,41 @@
 from motor.motor_asyncio import AsyncIOMotorClient
-from typing import Optional
-from contextlib import asynccontextmanager
-from constants import DB_CONNECTION_STRING
+import os
 import logging
 
-# Initialize logger
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 class MongoDBClient:
-    client: Optional[AsyncIOMotorClient] = None
-    
-    @classmethod
-    async def connect(cls):
-        """Initialize database connection"""
-        if cls.client is None:
-            try:
-                cls.client = AsyncIOMotorClient(DB_CONNECTION_STRING)
-                logger.info("MongoDB connection established")
-            except Exception as e:
-                logger.error(f"Failed to connect to MongoDB: {e}")
-                raise
+    client: AsyncIOMotorClient = None
+    db = None
 
     @classmethod
-    async def close(cls):
-        """Close database connection"""
-        if cls.client is not None:
-            try:
-                cls.client.close()
-                cls.client = None
-                logger.info("MongoDB connection closed")
-            except Exception as e:
-                logger.error(f"Error closing MongoDB connection: {e}")
+    async def connect(cls):
+        """Initialize the MongoDB client and database."""
+        try:
+            mongo_uri = os.getenv("MONGODB_URI")
+            if not mongo_uri:
+                raise ValueError("MONGODB_URI environment variable not set")
+            cls.client = AsyncIOMotorClient(mongo_uri)
+            cls.db = cls.client.get_default_database(default="Cluster0")
+            logger.info("MongoDB connected successfully")
+        except Exception as e:
+            logger.error(f"Failed to connect to MongoDB: {e}")
+            raise
 
     @classmethod
     def get_db(cls):
-        """Get database instance"""
-        if cls.client is None:
-            raise Exception("Database not initialized")
-        return cls.client["Quran"]  # Replace with a configurable database name if needed
-    
+        """Retrieve the initialized database instance."""
+        if cls.db is None:
+            raise Exception("MongoDB client is not initialized. Call connect() first.")
+        return cls.db
+
     @classmethod
-    @asynccontextmanager
-    async def get_session(cls):
-        """Provide a MongoDB session"""
-        if cls.client is None:
-            raise Exception("MongoDB client is not initialized.")
-        async with cls.client.start_session() as session:
-            try:
-                yield session
-            except Exception as e:
-                logger.error(f"Error with MongoDB session: {e}")
-                raise
+    async def close(cls):
+        """Close the MongoDB client connection."""
+        if cls.client:
+            cls.client.close()
+            logger.info("MongoDB connection closed")
+
+# Add the initialize_db function
+async def initialize_db():
+    await MongoDBClient.connect()

@@ -26,8 +26,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Constants
-VECTOR_STORE_DIR = "tafasir_quran_faiss_vectorstore"
-VECTOR_STORE_PATH = Path(VECTOR_STORE_DIR).absolute()  # Use absolute path
+VECTOR_STORE_PATH = "tafasir_quran_faiss_vectorstore"
 MODEL_PATH = "sentence-transformers/paraphrase-albert-small-v2"
 MAX_MEMORY_USAGE = 0.75  # Maximum memory usage threshold (75%)
 
@@ -36,7 +35,6 @@ warnings.filterwarnings("ignore")
 
 # Thread pool executor for blocking operations
 executor = ThreadPoolExecutor(max_workers=2)
-
 
 async def create_embeddings():
     """Create embeddings with optimized memory settings."""
@@ -61,11 +59,7 @@ async def create_embeddings():
         )
     )
 
-    # Model initialization is handled automatically by HuggingFaceEmbeddings
-    # Remove the manual model initialization as it's not needed
-
     return embeddings
-
 
 class StateManager:
     """Memory-efficient state manager for embeddings and vector store."""
@@ -104,32 +98,21 @@ class StateManager:
         logger.info("Initializing vector store")
         try:
             embeddings = await self.get_embeddings()
-            
-            # Try to load existing vector store first
-            if (VECTOR_STORE_PATH / "index.faiss").exists():
-                logger.info("Loading existing vector store")
-                self._vector_store = FAISS.load_local(
-                    folder_path=str(VECTOR_STORE_PATH),
-                    embeddings=embeddings,
-                    allow_dangerous_deserialization=True
-                )
-                logger.info(f"Loaded existing vector store with {len(self._vector_store.docstore._dict)} documents")
-            else:
-                # Create new vector store if none exists
-                logger.info("Creating new vector store")
-                sample_embedding = embeddings.embed_query("test")
-                index = faiss.IndexFlatL2(len(sample_embedding))
-                self._vector_store = FAISS(
-                    embedding_function=embeddings,
-                    index=index,
-                    docstore=InMemoryDocstore(),
-                    index_to_docstore_id={}
-                )
-                # Ensure directory exists before saving
-                VECTOR_STORE_PATH.mkdir(parents=True, exist_ok=True)
-                self._vector_store.save_local(folder_path=str(VECTOR_STORE_PATH))
-                logger.info("Created and saved new vector store")
-
+            logger.info("Creating sample embedding")
+            # Create a sample embedding to get dimensions
+            sample_embedding = embeddings.embed_query("test")
+            logger.info("Initializing FAISS index")
+            # Initialize FAISS index
+            index = faiss.IndexFlatL2(len(sample_embedding))
+            logger.info("Creating vector store")
+            # Create vector store
+            self._vector_store = FAISS(
+                embedding_function=embeddings,
+                index=index,
+                docstore=InMemoryDocstore(),
+                index_to_docstore_id={}
+            )
+            logger.info("Vector store initialization successful")
         except Exception as e:
             logger.error(f"Failed to initialize vector store: {str(e)}")
             raise
@@ -159,51 +142,36 @@ class StateManager:
             self._chat_history[session_id] = []
         self._chat_history[session_id].append(message)
 
-
-async def embed_data(message: str, session_id: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def embed_data(message: str, session_id: str) -> Dict[str, Any]:
     """Embed data into vector store with error handling."""
     try:
         validate_inputs(message, session_id)
         logger.info(f"Embedding data for session: {session_id}")
-        
+
         vector_store = await state_manager.get_vector_store()
-        timestamp = str(datetime.now())
-        
-        # Create new document
-        new_document = Document(
+
+        # Create new document with enhanced metadata
+        document = Document(
             page_content=message,
             metadata={
                 "source": "user",
                 "session_id": session_id,
                 "type": "conversation",
-                "timestamp": timestamp,
-                "is_question": True,
-                **(metadata or {})
+                "timestamp": str(datetime.now()),
+                "is_question": True
             }
         )
 
-        # Generate unique ID
-        doc_id = f"document_{session_id}_{timestamp}"
-        
-        try:
-            # Add document and save
-            vector_store.add_documents([new_document], ids=[doc_id])
-            vector_store.save_local(folder_path=str(VECTOR_STORE_PATH))
-            logger.info(f"Added and saved document {doc_id}")
-            logger.debug(f"Total documents in store: {len(vector_store.docstore._dict)}")
-            
-            return {
-                "status": "success",
-                "document_name": doc_id
-            }
-        except Exception as e:
-            logger.error(f"Error adding document: {str(e)}")
-            return {"status": "error", "message": str(e)}
+        vector_store.add_documents(documents=[document])
+        Path(VECTOR_STORE_PATH).mkdir(parents=True, exist_ok=True)
+        vector_store.save_local(VECTOR_STORE_PATH)
+
+        logger.info(f"Successfully embedded data for session: {session_id}")
+        return {"status": "success", "document_name": f"document_{session_id}"}
 
     except Exception as e:
         logger.error(f"Error in embed_data: {str(e)}")
         return {"status": "error", "message": str(e)}
-
 
 async def retrieve_embedded_data(message: Optional[str], session_id: str) -> Optional[List[dict]]:
     """Retrieve embedded data and manage chat history."""
@@ -211,63 +179,124 @@ async def retrieve_embedded_data(message: Optional[str], session_id: str) -> Opt
         validate_inputs(message, session_id)
         logger.info(f"Retrieving data for session: {session_id}")
 
-        vector_store = await state_manager.get_vector_store()
-        
-        # Get all documents for the session
-        all_docs = []
-        for doc_id, doc in vector_store.docstore._dict.items():
-            if doc.metadata.get("session_id") == session_id:
-                doc.metadata["id"] = doc_id
-                all_docs.append(doc)
-        
-        # Sort by timestamp
-        sorted_docs = sorted(
-            all_docs,
-            key=lambda x: datetime.fromisoformat(x.metadata.get("timestamp", "1970-01-01")),
-            reverse=True  # Most recent first
-        )
-        
-        # Format documents
+        if Path(f"{VECTOR_STORE_PATH}/index.faiss").exists():
+            embeddings = await state_manager.get_embeddings()
+            vector_store = FAISS.load_local(
+                VECTOR_STORE_PATH,
+                embeddings=embeddings,
+                allow_dangerous_deserialization=True
+            )
+        else:
+            vector_store = await state_manager.get_vector_store()
+
+        if message:
+            all_docs = list(vector_store.docstore._dict.values())
+
+            # Perform similarity search based on the message
+            # First filter all_docs by session_id using attribute access
+            filtered_docs = [doc for doc in all_docs if doc.metadata.get("session_id") == session_id]
+            
+            if not filtered_docs:
+                logger.warning(f"No documents found for session_id: {session_id}. Skipping similarity search.")
+                # Return a default system message to provide context
+                default_docs = [{
+                    "content": "You are a helpful assistant specializing in Quranic tafsir.",
+                    "metadata": {
+                        "source": "system",
+                        "session_id": session_id,
+                        "type": "system",
+                        "timestamp": str(datetime.now()),
+                        "is_question": False
+                    }
+                }]
+                return default_docs
+
+            # Create a new FAISS index with filtered documents
+            embeddings = await state_manager.get_embeddings()
+            
+            try:
+                filtered_store = FAISS.from_documents(
+                    filtered_docs,
+                    embeddings,
+                    docstore=InMemoryDocstore(),
+                )
+            except ValueError as ve:
+                logger.error(f"Failed to create FAISS index with filtered_docs: {ve}")
+                return []
+
+            search_kwargs = {
+                "k": 10,
+                "fetch_k": 20,
+                "score_threshold": 0.5
+            }
+            retriever = filtered_store.as_retriever(
+                search_kwargs=search_kwargs,
+                search_type="similarity_score_threshold"
+            )
+            docs = await asyncio.get_event_loop().run_in_executor(
+                executor,
+                lambda: retriever.invoke(message)
+            )
+
+            if not docs:
+                logger.warning(f"No similar documents found for the given message in session_id: {session_id}.")
+        else:
+            # Get all documents and filter by session_id using attribute access
+            all_docs = list(vector_store.docstore._dict.values())
+            docs = [
+                doc for doc in all_docs 
+                if doc.metadata.get("session_id") == session_id  # Updated access
+            ]
+
+            if not docs:
+                logger.warning(f"No documents found for session_id: {session_id}. Returning default system message.")
+                # Return a default system message to provide context
+                default_docs = [{
+                    "content": "You are a helpful assistant specializing in Quranic tafsir.",
+                    "metadata": {
+                        "source": "system",
+                        "session_id": session_id,
+                        "type": "system",
+                        "timestamp": str(datetime.now()),
+                        "is_question": False
+                    }
+                }]
+                return default_docs
+
+        logger.info(f"Retrieved {len(docs)} documents for session {session_id}")
+
+        # Format retrieved documents with metadata using attribute access
         formatted_docs = []
-        for doc in sorted_docs:
+        for doc in docs:
+            if not hasattr(doc, 'page_content') or not hasattr(doc, 'metadata'):
+                logger.error(f"Document missing required attributes: {doc}")
+                continue  # Skip malformed documents
             formatted_docs.append({
-                "content": doc.page_content,
-                "metadata": doc.metadata,
-                "type": "history"
+                "content": doc.page_content,       # Changed from doc["content"]
+                "metadata": doc.metadata          # Changed from doc["metadata"]
             })
-        
-        logger.info(f"Retrieved {len(formatted_docs)} documents for session {session_id}")
+
         return formatted_docs
 
     except Exception as e:
         logger.error(f"Error in retrieve_embedded_data: {str(e)}")
         return None
 
-
 def validate_inputs(message: Optional[str], session_id: str) -> None:
     """Validate input parameters."""
     if not session_id or not isinstance(session_id, str):
-        raise ValueError("Session ID must be a non-empty string")
+        raise ValueError("Invalid session_id provided.")
+        
     if message is not None and not isinstance(message, str):
-        raise ValueError("Message must be a string")
-
+        raise ValueError("Message must be a string.")
 
 # Create singleton instance
 state_manager = StateManager()
-logger.info("Initializing embeddings")
 
 # Initialize the embeddings and vector store asynchronously
 async def initialize_services():
     try:
         logger.info("Initializing embeddings")
-        await state_manager.get_embeddings()
-        logger.info("Initializing vector store")
-        await state_manager.get_vector_store()
-        logger.info("Successfully initialized application")
-    except Exception as e:
-        logger.error(f"Failed to initialize application: {str(e)}")
-        raise
-# It's assumed that initialize_services is called during the application's startup
         await state_manager.get_embeddings()
         logger.info("Initializing vector store")
         await state_manager.get_vector_store()

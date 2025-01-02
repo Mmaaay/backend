@@ -2,12 +2,14 @@ from typing import Generic, TypeVar, Optional, Type
 from pydantic import BaseModel
 from bson import ObjectId
 from pymongo.collection import Collection
+from db.mongo_client import MongoDBClient  # Updated import
 
 T = TypeVar('T', bound=BaseModel)
 
 class BaseRepository(Generic[T]):
-    def __init__(self, collection: Collection, model_class: Type[T]):
-        self.collection = collection
+    def __init__(self, collection_name: str, model_class: Type[T]):
+        self.db = MongoDBClient.get_db()  # Updated to use MongoDBClient
+        self.collection: Collection = self.db[collection_name]
         self.model_class = model_class
     
     async def find_by_id(self, id: str) -> Optional[T]:
