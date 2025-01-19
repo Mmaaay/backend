@@ -1,6 +1,5 @@
-import asyncio
 import logging
-from typing import Dict, List, Tuple
+from typing import AsyncGenerator, Dict, List, Tuple
 from datetime import datetime
 
 from faissEmbedding.embeddings_manager import (embed_data,
@@ -15,6 +14,11 @@ from langchain_google_genai import (ChatGoogleGenerativeAI, HarmBlockThreshold,
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, MessagesState, StateGraph
 
+#load environment variables
+from dotenv import load_dotenv
+import os
+load_dotenv()
+
 # Remove ConversationHistory class and its instance as we'll use retrieved messages instead
 
 system_template = """
@@ -22,11 +26,12 @@ You are a helpful arabic assistant specializing in Quranic tafsir.
 Your goal is to answer questions by retrieving relevant tafsir and Quranic ayat.
 Be respectful and precise in your responses. Use simple language for better understanding.
 
-When asked about previous questions or conversation history, look at the retrieved texts marked as "history".
-For Quranic content, use the retrieved texts marked as "content".
+When asked about previous questions or conversation history, refer to the retrieved texts.
+For Quranic content, use the retrieved texts provided.
 
 User query: {{messages}}
-Retrieved texts:
+
+Retrieved History:
 {{retrieved_texts}}
 """
 
@@ -34,17 +39,18 @@ prompt = ChatPromptTemplate.from_messages(
     [
         ("system", system_template),
         MessagesPlaceholder(variable_name="messages"),
+        MessagesPlaceholder(variable_name="retrieved_texts")  # Added placeholder
     ]
 )
 # Configure logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.ERROR)
 handler = logging.StreamHandler()
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter('%(asctime)s - %name%s - %levelname%s - %message%s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-async def embed_message(message: str, session_id: str):
+async def embed_message(message: str, session_id: str , ):
     """Embeds a message using the embedding manager"""
     return await embed_data(message, session_id)
 
@@ -71,7 +77,7 @@ def format_messages(message_input) -> list[BaseMessage]:
     
     elif isinstance(message_input, dict):
         content = message_input.get('content', '')
-        role = message_input.get('role', 'human')
+        role = message_input.get('role', 'user')
         if role == 'assistant':
             return [AIMessage(content=content)]
         elif role == 'system':
@@ -86,7 +92,7 @@ def format_messages(message_input) -> list[BaseMessage]:
                 formatted_messages.append(msg)
             elif isinstance(msg, dict):
                 content = msg.get('content', '')
-                role = msg.get('role', 'human')
+                role = msg.get('role', 'user')
                 if role == 'assistant':
                     formatted_messages.append(AIMessage(content=content))
                 elif role == 'system':
@@ -99,37 +105,44 @@ def format_messages(message_input) -> list[BaseMessage]:
     else:
         raise ValueError("Messages must be a string, dictionary, or list of messages")
 
-async def process_chat(messages, retrieved_texts: List[dict], session_id: str = None, sio=None, sid=None):
-    """Process chat messages and return AI response with streaming support"""
+async def process_chat(messages, retrieved_texts: List[dict], session_id: str = None):
+    """Process chat messages and return AI response"""
+    # Instead of processing directly, use the streaming version
+    response_chunks = []
+    async for chunk in process_chat_stream(messages, retrieved_texts, session_id):
+        response_chunks.append(chunk)
+    return "".join(response_chunks)
+
+async def process_chat_stream(
+    messages: List[str], 
+    retrieved_texts: List[str] = None, 
+    session_id: str = None
+) -> AsyncGenerator[str, None]:
+    """Process chat messages and return AI response as a stream"""
     try:
         formatted_messages = format_messages(messages)
         message_contents = [msg.content for msg in formatted_messages]
         current_question = message_contents[0] if message_contents else ""
+        logger.debug(f"Formatted messages: {formatted_messages}")
+        logger.debug(f"Message contents: {message_contents}")
+        logger.debug(f"Current question: {current_question}")
         
-        # Format retrieved_texts to separate history and content
-        if isinstance(retrieved_texts, list) and retrieved_texts:
-            history_texts = "\nConversation History:\n" + "\n".join([
-                f"Q: {doc['content']}" for doc in retrieved_texts 
-                if isinstance(doc, dict) and doc.get('type') == 'history'
-            ])
-            
-            content_texts = "\nRetrieved Content:\n" + "\n".join([
-                f"Ayat: {doc['content']}" for doc in retrieved_texts 
-                if isinstance(doc, dict) and doc.get('type') == 'content'
-            ])
-
-            formatted_texts = f"Current Question: {current_question}\n{history_texts}\n{content_texts}"
+        # Convert retrieved_texts to list of BaseMessage
+        if isinstance(retrieved_texts, list):
+            retrieved_messages = [HumanMessage(content=msg) for msg in retrieved_texts]
+            logger.debug(f"Retrieved_texts as BaseMessages: {retrieved_messages}")
         else:
-            logger.info("No retrieved_texts provided. Using default system context.")
-            formatted_texts = f"Current Question: {current_question}\n"
+            retrieved_messages = []
+            logger.debug("No retrieved_texts provided or it's not a list.")
 
-        workflow = StateGraph(state_schema=MessagesState)
-        
-        parser = StrOutputParser()
+        # Setup streaming model
         model = ChatGoogleGenerativeAI(
             model="gemini-1.5-pro",
+            #get google api key from .env file
+            api_key=os.getenv("GOOGLE_API_KEY"),
             temperature=0,
-            max_tokens=None,
+            max_tokens=2056,
+            streaming=True,  # Enable streaming
             timeout=None,
             max_retries=2,
             safety_settings={
@@ -139,54 +152,29 @@ async def process_chat(messages, retrieved_texts: List[dict], session_id: str = 
             }
         )
 
-        async def call_model(state: MessagesState):
-            chain = prompt | model | parser
-            
-            response = chain.invoke({
-                "messages": message_contents,
-                "retrieved_texts": formatted_texts
-            })
-
-            # Simulate streaming by sending tokens one by one
-            cleaned_response = str(response).strip()
-            if isinstance(cleaned_response, str):
-                tokens = cleaned_response.split()  # Simple tokenization
-                for token in tokens:
-                    if sio and sid:
-                        asyncio.create_task(sio.emit(
-                            "response",
-                            {"session_id": session_id, "response": token + " "},
-                            to=sid
-                        ))
-                        await asyncio.sleep(0.5)  # Await sleep asynchronously
-                
-                # Signal stream end
-                if sio and sid:
-                    asyncio.create_task(sio.emit(
-                        "response",
-                        {"session_id": session_id, "response": "", "is_end": True},
-                        to=sid
-                    ))
-
-            logger.info(f"Generated response for session {session_id}")
-            return {"messages": cleaned_response}
-
-        workflow.add_edge(START, "chatbot")
-        workflow.add_node("chatbot", call_model)
-        workflow.add_edge("chatbot", END)
+        chain = prompt | model | StrOutputParser()
         
-        memory = MemorySaver()
-        app = workflow.compile(checkpointer=memory)
-        
-        config = {
-            "thread_id": session_id or str(hash(str(message_contents) + formatted_texts)),
-            "checkpoint_ns": "chat_conversation",
-            "checkpoint_id": f"chat_{hash(str(message_contents))}"
-        }
-        
-        result = await app.ainvoke({"messages": message_contents}, config=config)
-        return str(result.get("messages", ""))
-    
+        logger.info("Starting stream for session: %s", session_id)
+        async for chunk in chain.astream({
+            "messages": message_contents,
+            "retrieved_texts": retrieved_messages  # Pass as list of BaseMessage
+        }):
+            logger.debug(f"Streamed chunk: {chunk}")
+            yield chunk
+
+        logger.info("Stream completed for session: %s", session_id)
+
     except Exception as e:
-        logger.error(f"Error processing chat: {str(e)}", exc_info=True)
-        raise
+        logger.error("Error in streaming chat: %s", str(e), exc_info=True)
+        yield f"Error: {str(e)}"
+
+async def embed_system_response(response: str, session_id: str, question: str):
+    """Embeds the system's response with metadata"""
+    metadata = {
+        'timestamp': datetime.now().isoformat(),
+        'is_response': True,
+        'related_question': question
+    }
+    return await embed_data(response, session_id, metadata)
+
+# ...existing code...

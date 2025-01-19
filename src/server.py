@@ -1,7 +1,6 @@
 import os
 import sys
 import uvicorn
-from faissEmbedding.embeddings_manager import initialize_services
 from constants import DB_CONNECTION_STRING
 from controllers import auth_controller, supabase_controller
 from fastapi import FastAPI
@@ -9,8 +8,6 @@ from utils import startup
 import logging
 from dotenv import load_dotenv
 import socketio
-from services.service_container import ServiceContainer
-from db.mongo_client import initialize_db  # Ensure this import exists and is correct
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -21,11 +18,33 @@ load_dotenv()
 logger.info("Environment variables loaded")
 
 DEBUG = os.environ.get("DEBUG", "").strip().lower() in {"1", "true", "on", "yes"}
+sio = socketio.AsyncServer(async_mode='asgi')
+app = FastAPI(lifespan=startup.DatabaseLifespan.lifespan)
+sio_app = socketio.ASGIApp(sio, app)
 
-# Initialize Socket.IO server from startup.py
-from utils.startup import app_asgi  # Import the ASGI app with Socket.IO
+# Initialize controllers
+from controllers.socket_controller import SocketController
+socket_controller = SocketController(sio)
 
-# Remove references to app_asgi.app and include routers in startup.py instead
+# Import routers after app initialization
+from controllers.router import chat_router
 
-if __name__ == '__main__':
-    uvicorn.run("utils.startup:app_asgi", host="0.0.0.0", port=3000, reload=True)
+# Include routers
+app.include_router(auth_controller.router)
+app.include_router(supabase_controller.router)
+app.include_router(chat_router)
+
+@app.get("/")
+async def root():
+    return {"message": "Hello World"}
+
+def main(argv=sys.argv[1:]):
+    try:
+        uvicorn.run(sio_app, host="0.0.0.0", port=3000, reload=False)
+    except Exception as e:
+        logger.error(f"Failed to start the server: {str(e)}")
+    except KeyboardInterrupt:
+        logger.info("Server shutdown initiated by user")
+
+if __name__ == "__main__":
+    main()
