@@ -87,7 +87,7 @@ COPY requirements.txt .
 COPY requirements.lock .
 
 # Stage 1: Runtime image
-FROM nvcr.io/nvidia/cuda:12.1.0-runtime-ubuntu22.04 AS runtime
+FROM nvcr.io/nvidia/cuda:12.6.3-runtime-ubuntu22.04 AS runtime
 
 # Install build requirements for Python 3.12
 WORKDIR /tmp
