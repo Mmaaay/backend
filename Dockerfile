@@ -6,7 +6,7 @@ WORKDIR /model
 # RUN python -c "from transformers import AutoModel, AutoTokenizer; model_name='sentence-transformers/paraphrase-albert-small-v2'; model = AutoModel.from_pretrained(model_name); tokenizer = AutoTokenizer.from_pretrained(model_name); model.save_pretrained('/model'); tokenizer.save_pretrained('/model')"
 
 # Copy pre-downloaded model files
-COPY path/to/local/model /model
+COPY models/embeddings /model
 
 # Stage 1: Build requirements
 FROM python:3.12-slim-bullseye AS build
