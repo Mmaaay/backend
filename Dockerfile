@@ -123,8 +123,8 @@ RUN wget https://www.python.org/ftp/python/3.12.0/Python-3.12.0.tgz && \
 # Create appuser
 RUN useradd -m appuser
 
-# Copy model files
-COPY --from=model /model /app/models/embeddings
+# Copy model files with ownership set to appuser
+COPY --chown=appuser:appuser --from=model /model /app/models/embeddings
 
 # Copy the virtual environment from the requirements stage
 COPY --from=requirements /opt/venv /opt/venv
@@ -150,11 +150,8 @@ COPY tafasir_quran_faiss_vectorstore ./tafasir_quran_faiss_vectorstore
 # Switch to non-root user
 USER appuser
 
-# Remove the apt-get install line for PACKAGE_NAME
-
-
-# Set correct permissions
-RUN chown -R appuser:appuser /app/models
+# Remove the chown command
+# RUN chown -R appuser:appuser /app/models
 
 # Expose port and set entry point
 EXPOSE 3000
