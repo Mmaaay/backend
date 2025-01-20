@@ -35,9 +35,13 @@ dataclasses-json==0.6.7
 deprecation==2.1.0
     # via postgrest
 dnspython==2.6.1
-    # via pymongo
+    # via
+    #   email-validator
+    #   pymongo
 ecdsa==0.19.0
     # via python-jose
+email-validator==2.2.0
+    # via pydantic
 faiss-gpu-cu12==1.9.0.0
     # via -r requirements.txt
 fastapi==0.112.0
@@ -129,6 +133,7 @@ hyperframe==6.0.1
 idna==3.7
     # via
     #   anyio
+    #   email-validator
     #   httpx
     #   requests
     #   yarl
