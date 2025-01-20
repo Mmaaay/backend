@@ -9,9 +9,12 @@ WORKDIR /model
 COPY models/embeddings /model
 
 # Stage 0: Generate requirements
-FROM python:3.12-slim-bullseye AS requirements
+FROM python:3.12-slim AS requirements
 
 # Set up a virtual environment
+
+ENV VENV_PATH=/opt/venv
+
 RUN python -m venv /opt/venv
 
 # Set environment variables
@@ -79,6 +82,23 @@ COPY --from=model /model /app/models/embeddings
 # Copy the virtual environment from the requirements stage
 COPY --from=requirements /opt/venv /opt/venv
 
+# Install Python 3.12 and set up alternatives
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    software-properties-common gpg-agent curl && \
+    add-apt-repository ppa:deadsnakes/ppa && \
+    apt-get update && \
+    apt-get install -y python3.12 python3.12-venv python3.12-dev && \
+    update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1 && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
+    curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12 && \
+    useradd -m appuser && \
+    rm -rf /var/lib/apt/lists/*
+
+# Set up virtual environment with Python 3.12
+RUN python3.12 -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+RUN /opt/venv/bin/pip install --upgrade pip setuptools wheel
 
 # Set PATH to use the virtual environment
 ENV PATH="/opt/venv/bin:$PATH"
@@ -89,7 +109,6 @@ COPY --from=requirements /app/requirements.lock /tmp/requirements.lock
 # Install Python dependencies using the virtual environment
 RUN /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.lock && \
     /opt/venv/bin/pip install --no-cache-dir torch==2.1.0 faiss-gpu-cu12==1.9.0.0 uvicorn
-
 
 # Copy application files
 COPY src ./src
@@ -102,8 +121,6 @@ USER appuser
 # Set correct permissions
 RUN chown -R appuser:appuser /app/models
 
-# Create appuser
-RUN useradd -m appuser
 # Expose port and set entry point
 EXPOSE 3000
 
