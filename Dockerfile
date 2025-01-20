@@ -136,8 +136,7 @@ COPY tafasir_quran_faiss_vectorstore ./tafasir_quran_faiss_vectorstore
 USER appuser
 
 # Remove the apt-get install line for PACKAGE_NAME
-RUN sudo -E apt-get update && \
-    sudo -E apt-get install -y tz-data
+
 
 
 
