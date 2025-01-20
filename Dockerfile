@@ -89,6 +89,10 @@ COPY requirements.lock .
 # Stage 1: Runtime image
 FROM nvcr.io/nvidia/cuda:12.6.3-runtime-ubuntu22.04 AS runtime
 
+# Set CUDA environment variables
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+ENV CUDA_HOME=/usr/local/cuda
+
 # Install build requirements for Python 3.12
 WORKDIR /tmp
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y install tzdata
@@ -109,6 +113,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Install NVIDIA Container Toolkit
+RUN apt-get update && \
+    apt-get install -y nvidia-container-toolkit && \
+    nvidia-ctk runtime configure --runtime=docker && \
+    systemctl restart docker
 
 # Install Python 3.12 from source with correct checksum
 WORKDIR /tmp

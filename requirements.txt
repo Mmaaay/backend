@@ -9,6 +9,7 @@ langgraph
 motor
 passlib
 pydantic
+supabase
 pymongo
 python-dotenv
 python-socketio
