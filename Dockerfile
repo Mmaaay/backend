@@ -9,9 +9,8 @@ WORKDIR /model
 COPY path/to/local/model /model
 
 
-# Stage 0: Generate requirements
-ARG PYTHON_VERSION=3.12-slim-bullseye AS requirements
-FROM python:${PYTHON_VERSION}
+# Stage 1: Build requirements
+FROM python:3.12-slim-bullseye AS build
 
 # Set up a virtual environment
 RUN python -m venv /opt/venv
@@ -72,26 +71,27 @@ COPY requirements.txt .
 # Generate locked requirements
 RUN pip-compile requirements.txt --output-file requirements.lock
 
-# Stage 1: Runtime image
+# Stage 2: Runtime image
 FROM nvcr.io/nvidia/cuda:12.1.0-runtime-ubuntu22.04 AS runtime
+
+# Create appuser first
+RUN useradd -m appuser
 
 # Copy model files
 COPY --from=model /model /app/models/embeddings
 
-# Copy the virtual environment from the requirements stage
-COPY --from=requirements /opt/venv /opt/venv
-
+# Copy the virtual environment from the build stage
+COPY --from=build /opt/venv /opt/venv
 
 # Set PATH to use the virtual environment
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy locked requirements
-COPY --from=requirements /app/requirements.lock /tmp/requirements.lock
+COPY --from=build /app/requirements.lock /tmp/requirements.lock
 
 # Install Python dependencies using the virtual environment
 RUN /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.lock && \
     /opt/venv/bin/pip install --no-cache-dir torch==2.1.0 faiss-gpu-cu12==1.9.0.0 uvicorn
-
 
 # Copy application files
 COPY src ./src
@@ -104,8 +104,6 @@ USER appuser
 # Set correct permissions
 RUN chown -R appuser:appuser /app/models
 
-# Create appuser
-RUN useradd -m appuser
 # Expose port and set entry point
 EXPOSE 3000
 
