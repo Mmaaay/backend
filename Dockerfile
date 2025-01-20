@@ -101,9 +101,6 @@ RUN wget https://www.python.org/ftp/python/3.12.0/Python-3.12.0.tgz && \
     make -j$(nproc) && \
     make altinstall
 
-ARG DEBIAN_FRONTEND=noninteractive
-ENV TZ=Etc/UTC
-RUN apt-get install -y tzdata
 
 # Create appuser
 RUN useradd -m appuser
@@ -122,11 +119,12 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy locked requirements
 COPY --from=requirements /app/requirements.lock /tmp/requirements.lock
-
+    # set noninteractive installation
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y install tzdata
 # Install Python dependencies using the virtual environment
 RUN /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.lock && \
     /opt/venv/bin/pip install --no-cache-dir torch==2.1.0 faiss-gpu-cu12==1.9.0.0 uvicorn
-
+    
 # Copy application files
 COPY src ./src
 
