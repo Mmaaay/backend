@@ -61,13 +61,14 @@ RUN apt-get update && \
 RUN mkdir -p /app
 WORKDIR /app
 
+# Install pip-tools
+RUN pip install pip-tools
+
 # Copy requirements file
 COPY requirements.txt .
 
-# Install dependencies and generate lock file
-RUN pip install --upgrade pip && \
-    pip install -r requirements.txt && \
-    pip freeze > requirements.lock
+# Generate locked requirements
+RUN pip-compile requirements.txt --output-file requirements.lock
 
 # Stage 2: Runtime image
 FROM nvcr.io/nvidia/cuda:12.1.0-runtime-ubuntu22.04 AS runtime
