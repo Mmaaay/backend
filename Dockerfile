@@ -68,6 +68,7 @@ WORKDIR /app
 
 # Install pip-tools
 RUN pip install pip-tools
+RUN pip install uv
 
 # Copy requirements file
 COPY requirements.txt .
@@ -89,7 +90,6 @@ RUN apt-get update && \
     libffi-dev \
     wget \
     curl \
-    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # Build and install Python 3.12 from source
@@ -122,8 +122,8 @@ COPY --from=requirements /app/requirements.lock /tmp/requirements.lock
     # set noninteractive installation
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y install tzdata
 # Install Python dependencies using the virtual environment
-RUN /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.lock && \
-    /opt/venv/bin/pip install --no-cache-dir torch==2.1.0 faiss-gpu-cu12==1.9.0.0 uvicorn
+RUN /opt/venv/bin/uv pip compile /tmp/requirements.lock && \
+    /opt/venv/bin/uv pip compile torch==2.1.0 faiss-gpu-cu12==1.9.0.0 uvicorn
     
 # Copy application files
 COPY src ./src
@@ -134,6 +134,7 @@ COPY tafasir_quran_faiss_vectorstore ./tafasir_quran_faiss_vectorstore
 USER appuser
 
 # Remove the apt-get install line for PACKAGE_NAME
+
 
 # Set correct permissions
 RUN chown -R appuser:appuser /app/models
