@@ -100,11 +100,7 @@ RUN wget https://www.python.org/ftp/python/3.12.0/Python-3.12.0.tgz && \
 
 ARG DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
-
-RUN apt-get install -y tzdata && \
-    ln -fs /usr/share/zoneinfo/$TZ /etc/localtime && \
-    echo $TZ > /etc/timezone && \
-    dpkg-reconfigure --frontend noninteractive tzdata
+RUN apt-get install -y tzdata
 
 # Create appuser
 RUN useradd -m appuser
@@ -136,8 +132,11 @@ COPY tafasir_quran_faiss_vectorstore ./tafasir_quran_faiss_vectorstore
 # Switch to non-root user
 USER appuser
 
+# Remove the apt-get install line for PACKAGE_NAME
 RUN sudo -E apt-get update && \
-    sudo -E apt-get install -y PACKAGE_NAME
+    sudo -E apt-get install -y tz-data
+
+
 
 # Set correct permissions
 RUN chown -R appuser:appuser /app/models
