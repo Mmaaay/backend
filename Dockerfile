@@ -95,7 +95,6 @@ RUN /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.lock && \
 
 # Copy application files
 COPY src ./src
-COPY .env .env
 COPY tafasir_quran_faiss_vectorstore ./tafasir_quran_faiss_vectorstore
 
 # Switch to non-root user
