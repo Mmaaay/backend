@@ -82,42 +82,39 @@ RUN pip-compile requirements.txt --output-file requirements.lock
 # Stage 1: Runtime image
 FROM nvcr.io/nvidia/cuda:12.1.0-runtime-ubuntu22.04 AS runtime
 
-# Install Python and other dependencies
+# Install build requirements for Python 3.12
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    software-properties-common \
-    gpg-agent \
+    build-essential \
+    libssl-dev \
+    libffi-dev \
+    wget \
     curl \
-    python3 \
-    python3-venv \
-    python3-pip \
     tzdata \
-    && rm -rf /var/lib/apt/lists/* && \
-    # Preconfigure tzdata to set timezone automatically
-    ln -fs /usr/share/zoneinfo/$TZ /etc/localtime && \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build and install Python 3.12 from source
+WORKDIR /tmp
+RUN wget https://www.python.org/ftp/python/3.12.0/Python-3.12.0.tgz && \
+    tar -xf Python-3.12.0.tgz && \
+    cd Python-3.12.0 && \
+    ./configure --enable-optimizations && \
+    make -j$(nproc) && \
+    make altinstall
+
+# Preconfigure tzdata to set timezone automatically
+RUN ln -fs /usr/share/zoneinfo/$TZ /etc/localtime && \
     echo $TZ > /etc/timezone && \
     dpkg-reconfigure --frontend noninteractive tzdata
 
+# Create appuser
+RUN useradd -m appuser
 
 # Copy model files
 COPY --from=model /model /app/models/embeddings
 
 # Copy the virtual environment from the requirements stage
 COPY --from=requirements /opt/venv /opt/venv
-
-# Install Python 3.12 and set up alternatives
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    software-properties-common gpg-agent curl && \
-    add-apt-repository ppa:deadsnakes/ppa && \
-    apt-get update && \
-    apt-get install -y python3.12 python3.12-venv python3.12-dev python3.12-distutils && \
-    update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1 && \
-    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
-    curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12 && \
-    python3.12 -m ensurepip --upgrade && \
-    python3.12 -m venv /opt/venv && \
-    rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/opt/venv/bin:$PATH"
 RUN /opt/venv/bin/pip install --upgrade pip setuptools wheel
