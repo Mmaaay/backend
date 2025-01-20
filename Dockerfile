@@ -8,7 +8,6 @@ WORKDIR /model
 # Copy pre-downloaded model files
 COPY path/to/local/model /model
 
-
 # Stage 1: Build requirements
 FROM python:3.12-slim-bullseye AS build
 
