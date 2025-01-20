@@ -1,6 +1,7 @@
 /.venv
 .venv
 .vercel
+.env
 /.vercel
 
 # Byte-compiled / optimized / DLL files

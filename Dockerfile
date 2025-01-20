@@ -20,7 +20,6 @@ RUN python -m venv /opt/venv
 ARG ENV_RELOAD
 ENV ENV_RELOAD=Production
 
-
 ARG GEMENI_API_KEY
 ENV GEMENI_API_KEY=$GEMENI_API_KEY
 
