@@ -117,8 +117,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install NVIDIA Container Toolkit
 RUN apt-get update && \
     apt-get install -y nvidia-container-toolkit && \
-    nvidia-ctk runtime configure --runtime=docker && \
-    systemctl restart docker
+    nvidia-ctk runtime configure --runtime=docker
 
 # Install Python 3.12 from source with correct checksum
 WORKDIR /tmp
