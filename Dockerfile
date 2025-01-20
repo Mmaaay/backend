@@ -135,9 +135,6 @@ USER appuser
 
 # Remove the apt-get install line for PACKAGE_NAME
 
-
-
-
 # Set correct permissions
 RUN chown -R appuser:appuser /app/models
 
