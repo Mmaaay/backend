@@ -52,7 +52,10 @@ app = create_app()
 
 def main(argv=sys.argv[1:]):
     try:
-        reload = ENV_RELOAD in ("development", "dev", "true", "1")
+        if ENV_RELOAD == "Production":
+            reload = False
+        else:
+            reload = True
         logger.info(f"Reload mode is set to: {reload}")
         uvicorn.run("server:app", host="0.0.0.0", port=3000, reload=reload)
     except Exception as e:

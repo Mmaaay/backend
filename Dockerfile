@@ -24,7 +24,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Set environment variables
 ARG ENV_RELOAD
-ENV ENV_RELOAD=Production
+ENV ENV_RELOAD="Production"
 
 ARG GEMENI_API_KEY
 ENV GEMENI_API_KEY=$GEMENI_API_KEY
