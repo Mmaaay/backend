@@ -73,37 +73,36 @@ RUN pip-compile requirements.txt --output-file requirements.lock
 # Stage 2: Runtime image
 FROM nvcr.io/nvidia/cuda:12.1.0-runtime-ubuntu22.04 AS runtime
 
-# Create appuser first
-RUN useradd -m appuser
+# Install Python and create appuser
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    python3.12 \
+    python3.12-venv \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -m appuser
 
-# Copy model files
-COPY --from=model /model /app/models/embeddings
-
-# Copy the virtual environment from the build stage
-COPY --from=build /opt/venv /opt/venv
-
-# Set PATH to use the virtual environment
+# Set up virtual environment
+RUN python3.12 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy locked requirements
+# Upgrade pip in the new environment
+RUN /opt/venv/bin/pip install --upgrade pip
+
+# Copy requirements and install dependencies
 COPY --from=build /app/requirements.lock /tmp/requirements.lock
+RUN pip install --no-cache-dir -r /tmp/requirements.lock && \
+    pip install --no-cache-dir torch==2.1.0 faiss-gpu-cu12==1.9.0.0 uvicorn
 
-# Install Python dependencies using the virtual environment
-RUN /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.lock && \
-    /opt/venv/bin/pip install --no-cache-dir torch==2.1.0 faiss-gpu-cu12==1.9.0.0 uvicorn
-
-# Copy application files
+# Create app directory and copy files
+WORKDIR /app
+COPY --from=model /model /app/models/embeddings
 COPY src ./src
 COPY tafasir_quran_faiss_vectorstore ./tafasir_quran_faiss_vectorstore
 
-# Switch to non-root user
+# Set permissions and switch to non-root user
+RUN chown -R appuser:appuser /app
 USER appuser
 
-# Set correct permissions
-RUN chown -R appuser:appuser /app/models
-
-# Expose port and set entry point
 EXPOSE 3000
-
-# Use the venv Python explicitly
-CMD ["/opt/venv/bin/python", "src/server.py"]
+CMD ["python", "src/server.py"]
