@@ -141,7 +141,7 @@ COPY --from=requirements /app/requirements.txt /tmp/requirements.txt
 # Install Python dependencies using the virtual environment
 ENV PATH="/opt/venv/bin:$PATH"
 RUN /opt/venv/bin/uv pip install --upgrade pip && /opt/venv/bin/uv pip install --verbose -r /tmp/requirements.lock
-RUN /opt/venv/bin/uv pip install torch==2.1.0 faiss-gpu-cu12==1.9.0.0 uvicorn
+RUN /opt/venv/bin/uv pip install torch faiss-gpu-cu12==1.9.0.0 uvicorn
     
 # Copy application files
 COPY src ./src

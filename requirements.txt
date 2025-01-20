@@ -16,4 +16,6 @@ python_jose
 starlette
 torch
 transformers
+torch 
+faiss-gpu-cu12==1.9.0.0 
 uvicorn
