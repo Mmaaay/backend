@@ -9,13 +9,18 @@ WORKDIR /model
 COPY models/embeddings /model
 
 # Stage 0: Generate requirements
-FROM python:3.12-slim AS requirements
+FROM python:3.12-slim-bullseye AS requirements
 
-# Set up a virtual environment
+# Install uv first
+RUN pip install uv
 
+# Set up a virtual environment using uv
 ENV VENV_PATH=/opt/venv
+RUN uv venv /opt/venv --python 3.12 --seed  --relocatable  
+RUN echo "source /opt/venv/bin/activate" >> /root/.bashrc
 
-RUN python -m venv /opt/venv
+# Set PATH to use the virtual environment
+ENV PATH="/opt/venv/bin:$PATH"
 
 # Set environment variables
 ARG ENV_RELOAD
@@ -42,6 +47,8 @@ ENV SUPABASE_PROJECT_URL=$SUPABASE_PROJECT_URL
 ARG HF_TOKEN
 ENV HF_TOKEN=$HF_TOKEN
 
+ARG DEBIAN_FRONTEND=noninteractive
+ENV TZ=Etc/UTC
 
 
 # Set PATH to use the virtual environment
@@ -68,7 +75,7 @@ WORKDIR /app
 
 # Install pip-tools
 RUN pip install pip-tools
-RUN pip install uv
+RUN pip install uv 
 
 # Copy requirements file
 COPY requirements.txt .
@@ -83,24 +90,35 @@ COPY requirements.lock .
 FROM nvcr.io/nvidia/cuda:12.1.0-runtime-ubuntu22.04 AS runtime
 
 # Install build requirements for Python 3.12
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+WORKDIR /tmp
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y install tzdata
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    zlib1g-dev \
     libssl-dev \
+    libncurses5-dev \
+    libncursesw5-dev \
+    libreadline-dev \
+    libsqlite3-dev \
+    libgdbm-dev \
+    libbz2-dev \
+    liblzma-dev \
+    tk-dev \
     libffi-dev \
+    xz-utils \
     wget \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Build and install Python 3.12 from source
+# Install Python 3.12 from source with correct checksum
 WORKDIR /tmp
 RUN wget https://www.python.org/ftp/python/3.12.0/Python-3.12.0.tgz && \
+    echo "51412956d24a1ef7c97f1cb5f70e185c13e3de1f50d131c0aac6338080687afb  Python-3.12.0.tgz" | sha256sum -c - && \
     tar -xf Python-3.12.0.tgz && \
     cd Python-3.12.0 && \
     ./configure --enable-optimizations && \
     make -j$(nproc) && \
     make altinstall
-
 
 # Create appuser
 RUN useradd -m appuser
@@ -112,18 +130,18 @@ COPY --from=model /model /app/models/embeddings
 COPY --from=requirements /opt/venv /opt/venv
 
 ENV PATH="/opt/venv/bin:$PATH"
-RUN /opt/venv/bin/pip install --upgrade pip setuptools wheel
+RUN /opt/venv/bin/uv pip install --upgrade pip setuptools wheel uv
 
 # Set PATH to use the virtual environment
-ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy locked requirements
 COPY --from=requirements /app/requirements.lock /tmp/requirements.lock
-    # set noninteractive installation
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y install tzdata
+COPY --from=requirements /app/requirements.txt /tmp/requirements.txt
+# set noninteractive installation
 # Install Python dependencies using the virtual environment
-RUN /opt/venv/bin/uv pip compile /tmp/requirements.lock && \
-    /opt/venv/bin/uv pip compile torch==2.1.0 faiss-gpu-cu12==1.9.0.0 uvicorn
+ENV PATH="/opt/venv/bin:$PATH"
+RUN /opt/venv/bin/uv pip install --upgrade pip && /opt/venv/bin/uv pip install --verbose -r /tmp/requirements.lock
+RUN /opt/venv/bin/uv pip install torch==2.1.0 faiss-gpu-cu12==1.9.0.0 uvicorn
     
 # Copy application files
 COPY src ./src
