@@ -52,12 +52,7 @@ app = create_app()
 
 def main(argv=sys.argv[1:]):
     try:
-        if ENV_RELOAD == "Production":
-            reload = False
-        else:
-            reload = True
-        logger.info(f"Reload mode is set to: {reload}")
-        uvicorn.run("server:app", host="0.0.0.0", port=3000, reload=reload)
+        uvicorn.run("server:app", host="0.0.0.0", port=3000, reload=False)
     except Exception as e:
         logger.error(f"Failed to start the server: {str(e)}")
     except KeyboardInterrupt:
