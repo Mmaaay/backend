@@ -111,15 +111,14 @@ RUN apt-get update && \
     software-properties-common gpg-agent curl && \
     add-apt-repository ppa:deadsnakes/ppa && \
     apt-get update && \
-    apt-get install -y python3.12 python3.12-venv python3.12-dev && \
+    apt-get install -y python3.12 python3.12-venv python3.12-dev python3.12-distutils && \
     update-alternatives --install /usr/bin/python python /usr/bin/python3.12 1 && \
     update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 1 && \
     curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12 && \
-    useradd -m appuser && \
+    python3.12 -m ensurepip --upgrade && \
+    python3.12 -m venv /opt/venv && \
     rm -rf /var/lib/apt/lists/*
 
-# Set up virtual environment with Python 3.12
-RUN python3.12 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 RUN /opt/venv/bin/pip install --upgrade pip setuptools wheel
 
