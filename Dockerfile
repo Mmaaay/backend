@@ -42,11 +42,7 @@ ENV SUPABASE_PROJECT_URL=$SUPABASE_PROJECT_URL
 ARG HF_TOKEN
 ENV HF_TOKEN=$HF_TOKEN
 
-ARG DEBIAN_FRONTEND
-ENV DEBIAN_FRONTEND=$DEBIAN_FRONTEND
 
-ARG TZ
-ENV TZ=$TZ
 
 # Set PATH to use the virtual environment
 ENV PATH="/opt/venv/bin:$PATH"
@@ -102,8 +98,11 @@ RUN wget https://www.python.org/ftp/python/3.12.0/Python-3.12.0.tgz && \
     make -j$(nproc) && \
     make altinstall
 
-# Preconfigure tzdata to set timezone automatically
-RUN ln -fs /usr/share/zoneinfo/$TZ /etc/localtime && \
+ARG DEBIAN_FRONTEND=noninteractive
+ENV TZ=Etc/UTC
+
+RUN apt-get install -y tzdata && \
+    ln -fs /usr/share/zoneinfo/$TZ /etc/localtime && \
     echo $TZ > /etc/timezone && \
     dpkg-reconfigure --frontend noninteractive tzdata
 
