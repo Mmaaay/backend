@@ -136,6 +136,9 @@ COPY tafasir_quran_faiss_vectorstore ./tafasir_quran_faiss_vectorstore
 # Switch to non-root user
 USER appuser
 
+RUN sudo -E apt-get update && \
+    sudo -E apt-get install -y PACKAGE_NAME
+
 # Set correct permissions
 RUN chown -R appuser:appuser /app/models
 
