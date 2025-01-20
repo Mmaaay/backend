@@ -20,3 +20,7 @@ coverage.xml
 .hypothesis
 .venv/*
 .venv
+__pycache__
+*.pyc
+.git
+.env

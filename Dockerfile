@@ -42,6 +42,12 @@ ENV SUPABASE_PROJECT_URL=$SUPABASE_PROJECT_URL
 ARG HF_TOKEN
 ENV HF_TOKEN=$HF_TOKEN
 
+ARG DEBIAN_FRONTEND
+ENV DEBIAN_FRONTEND=$DEBIAN_FRONTEND
+
+ARG TZ
+ENV TZ=$TZ
+
 # Set PATH to use the virtual environment
 ENV PATH="/opt/venv/bin:$PATH"
 
@@ -75,6 +81,23 @@ RUN pip-compile requirements.txt --output-file requirements.lock
 
 # Stage 1: Runtime image
 FROM nvcr.io/nvidia/cuda:12.1.0-runtime-ubuntu22.04 AS runtime
+
+# Install Python and other dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    software-properties-common \
+    gpg-agent \
+    curl \
+    python3 \
+    python3-venv \
+    python3-pip \
+    tzdata \
+    && rm -rf /var/lib/apt/lists/* && \
+    # Preconfigure tzdata to set timezone automatically
+    ln -fs /usr/share/zoneinfo/$TZ /etc/localtime && \
+    echo $TZ > /etc/timezone && \
+    dpkg-reconfigure --frontend noninteractive tzdata
+
 
 # Copy model files
 COPY --from=model /model /app/models/embeddings
