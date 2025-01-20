@@ -1,6 +1,7 @@
 from typing import List, Optional
 from datetime import datetime
-from models.dto import ChatSessionBase, Messages
+from models.dto import ChatSessionBase
+from models.Messages import Messages
 from repos.base_repository import BaseRepository
 from db.collections import Collections
 
@@ -53,12 +54,12 @@ class MessageRepository(BaseRepository[Messages]):
     def __init__(self):
         super().__init__(Collections.messages(), Messages)
         
-    async def get_session(self , session_id:str) :
-        return await self.collection.find_one({"session_id":session_id})
-    
-    async def create_message(self, message_data) :
+    async def get_session(self, session_id: str):
+        return await self.collection.find_one({"session_id": session_id})
+        
+    async def create_message(self, message_data: dict):
         return await self.create(message_data)
-    
+        
     async def get_chat_history(
         self,
         session_id: str,
@@ -74,7 +75,3 @@ class MessageRepository(BaseRepository[Messages]):
             message['_id'] = str(message['_id'])
             messages.append(Messages(**message))
         return messages
-    
-  
-        
-        

@@ -1,56 +1,60 @@
 import os
 import sys
 import uvicorn
-from constants import DB_CONNECTION_STRING
-from controllers import auth_controller, chat_controller, supabase_controller
-from fastapi import Depends, FastAPI
-from pymongo import MongoClient
-from utils import startup
+from fastapi import FastAPI
 import logging
 from dotenv import load_dotenv
-from db.supabase import Supabase
-import socketio  # Added import
+from utils.startup import DatabaseLifespan
+from middleware.auth_middleware import AuthMiddleware
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Load environment variables
+# Load environment variables
 load_dotenv()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 logger.info("Environment variables loaded")
 
-DEBUG = os.environ.get("DEBUG", "").strip().lower() in {"1", "true", "on", "yes"}
-sio = socketio.AsyncServer(async_mode='asgi')  # Initialize SocketIO
-app = FastAPI(lifespan=startup.DatabaseLifespan.lifespan)
-sio_app = socketio.ASGIApp(sio, app)  # Wrap FastAPI with SocketIO
+# Get the environment reload flag
+ENV_RELOAD = os.getenv("ENV_RELOAD", "production").lower()
 
-app.include_router(auth_controller.router)
-app.include_router(chat_controller.router)
-app.include_router(supabase_controller.router)
+def create_app():
+    app = FastAPI(lifespan=DatabaseLifespan.lifespan)
+    
+    # Add authentication middleware
+    app.add_middleware(AuthMiddleware)
+    
+    @app.get("/")
+    async def root():
+        return {"message": "Hello World"}
 
-@app.get("/")
-async def root():
-    return {"message": "Hello World"}
+    # Register routes after app is fully initialized
+    def register_routes():
+        from controllers import auth_controller
+        from controllers import chat_controller
+        from controllers import supabase_controller
+        
+        app.include_router(auth_controller.router)
+        app.include_router(chat_controller.router)
+        app.include_router(supabase_controller.router)
 
-@sio.event
-async def connect(sid, environ):
-    logger.info(f"Client connected: {sid}")
-    # Join room based on session_id if needed
-    # Example: await sio.emit('welcome', {'message': 'Connected to server'}, room=sid)
+    # Call route registration after all other setup is done
+    register_routes()
+    return app
 
-@sio.event
-async def disconnect(sid):
-    logger.info(f"Client disconnected: {sid}")
+# Initialize app at module level
+app = create_app()
 
-@sio.event
-async def message(sid, data):
-    logger.info(f"Message from {sid}: {data}")
-    await sio.emit('response', {'message': 'Message received'}, to=sid)
-
-# Modify the main function to run sio_app instead of app
 def main(argv=sys.argv[1:]):
     try:
-        uvicorn.run(sio_app, host="0.0.0.0", port=3000, reload=False)
+        reload = ENV_RELOAD in ("development", "dev", "true", "1")
+        logger.info(f"Reload mode is set to: {reload}")
+        uvicorn.run("server:app", host="0.0.0.0", port=3000, reload=reload)
     except Exception as e:
         logger.error(f"Failed to start the server: {str(e)}")
     except KeyboardInterrupt:
@@ -58,5 +62,3 @@ def main(argv=sys.argv[1:]):
 
 if __name__ == "__main__":
     main()
-
-# Listening for changes is handled in chat_service.py where AI responses are emitted to rooms identified by session_id

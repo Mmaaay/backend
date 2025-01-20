@@ -1,6 +1,11 @@
+import asyncio
 import logging
+import os
+import sys
 from typing import AsyncGenerator, Dict, List, Tuple
 from datetime import datetime
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from faissEmbedding.embeddings_manager import (embed_data,
                                                retrieve_embedded_data,
@@ -13,30 +18,30 @@ from langchain_google_genai import (ChatGoogleGenerativeAI, HarmBlockThreshold,
                                     HarmCategory)
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, MessagesState, StateGraph
+import constants
+from constants import GEMENI_API_KEY
 
 # Remove ConversationHistory class and its instance as we'll use retrieved messages instead
 
 system_template = """
-You are a helpful arabic assistant specializing in Quranic tafsir. 
-Your goal is to answer questions by retrieving relevant tafsir and Quranic ayat.
-Be respectful and precise in your responses. Use simple language for better understanding.
+You are an Arabic Quranic assistant specializing in Tafsir. Your goal is to answer the User's question about the Quran accurately and respectfully, using retrieved Tafsir and Quranic Ayat.
 
-When asked about previous questions or conversation history, refer to the retrieved texts.
-For Quranic content, use the retrieved texts provided.
+Current Question: {current_question}
+Retrieved Context: {context}
 
-User query: {{messages}}
-
-Retrieved History:
-{{retrieved_texts}}
+Instructions:  
+1. Analyze the User's query to understand its intent and focus.  
+2. Review the retrieved context if available and incorporate relevant information.
+3. Provide clear, direct answers using simple language.
+4. Maintain a respectful and precise tone.
 """
 
-prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system", system_template),
-        MessagesPlaceholder(variable_name="messages"),
-        MessagesPlaceholder(variable_name="retrieved_texts")  # Added placeholder
-    ]
-)
+# Update prompt template to use simple string formatting
+prompt = ChatPromptTemplate.from_messages([
+    ("system", system_template),
+    ("human", "{question}")  # This will contain the current question
+])
+
 # Configure logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.ERROR)
@@ -108,36 +113,49 @@ async def process_chat(messages, retrieved_texts: List[dict], session_id: str = 
         response_chunks.append(chunk)
     return "".join(response_chunks)
 
+def chunk_text(text: str, chunk_size: int = 10) -> List[str]:
+    """Split text into smaller chunks while preserving word boundaries."""
+    words = text.split()
+    chunks = []
+    current_chunk = []
+    current_size = 0
+    
+    for word in words:
+        if current_size + len(word) + 1 <= chunk_size:
+            current_chunk.append(word)
+            current_size += len(word) + 1
+        else:
+            if current_chunk:
+                chunks.append(" ".join(current_chunk))
+            current_chunk = [word]
+            current_size = len(word)
+    
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
+    
+    return chunks
+
 async def process_chat_stream(
     messages: List[str], 
     retrieved_texts: List[str] = None, 
     session_id: str = None
 ) -> AsyncGenerator[str, None]:
-    """Process chat messages and return AI response as a stream"""
+    """Process chat messages and return AI response as a stream with smooth chunking"""
     try:
-        formatted_messages = format_messages(messages)
-        message_contents = [msg.content for msg in formatted_messages]
-        current_question = message_contents[0] if message_contents else ""
-        logger.debug(f"Formatted messages: {formatted_messages}")
-        logger.debug(f"Message contents: {message_contents}")
-        logger.debug(f"Current question: {current_question}")
+        current_question = messages if isinstance(messages, str) else messages[0]
+        context = "\n".join([str(text) for text in (retrieved_texts or [])][-3:])
         
-        # Convert retrieved_texts to list of BaseMessage
-        if isinstance(retrieved_texts, list):
-            retrieved_messages = [HumanMessage(content=msg) for msg in retrieved_texts]
-            logger.debug(f"Retrieved_texts as BaseMessages: {retrieved_messages}")
-        else:
-            retrieved_messages = []
-            logger.debug("No retrieved_texts provided or it's not a list.")
+        logger.info(f"Processing question: {current_question}")
+        logger.info(f"With context: {context}")
 
-        # Setup streaming model
         model = ChatGoogleGenerativeAI(
             model="gemini-1.5-pro",
             temperature=0,
             max_tokens=2056,
-            streaming=True,  # Enable streaming
+            streaming=True,
             timeout=None,
             max_retries=2,
+            api_key=GEMENI_API_KEY,
             safety_settings={
                 HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
                 HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
@@ -147,13 +165,35 @@ async def process_chat_stream(
 
         chain = prompt | model | StrOutputParser()
         
+        # Buffer for accumulating partial words/sentences
+        text_buffer = ""
+        CHUNK_SIZE = 30  # Adjust this value to control streaming smoothness
+        
         logger.info("Starting stream for session: %s", session_id)
         async for chunk in chain.astream({
-            "messages": message_contents,
-            "retrieved_texts": retrieved_messages  # Pass as list of BaseMessage
+            "current_question": current_question,
+            "context": context,
+            "question": current_question
         }):
-            logger.debug(f"Streamed chunk: {chunk}")
-            yield chunk
+            # Add chunk to buffer
+            text_buffer += chunk
+            
+            # Process complete sentences or when buffer gets too large
+            if len(text_buffer) >= CHUNK_SIZE or any(x in text_buffer for x in ['.', '!', '?', '\n']):
+                # Split into chunks while preserving word boundaries
+                chunks = chunk_text(text_buffer, CHUNK_SIZE)
+                
+                # Yield all complete chunks except possibly the last one
+                for complete_chunk in chunks[:-1]:
+                    await asyncio.sleep(0.01)  # Small delay for smoother streaming
+                    yield complete_chunk + " "
+                
+                # Keep any remaining text in the buffer
+                text_buffer = chunks[-1] if chunks else ""
+        
+        # Yield any remaining text in the buffer
+        if text_buffer:
+            yield text_buffer
 
         logger.info("Stream completed for session: %s", session_id)
 

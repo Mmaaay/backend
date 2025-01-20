@@ -1,8 +1,10 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from datetime import datetime
-from typing import Optional , Dict, List
+from typing import Any, Optional , Dict, List
 from bson import ObjectId
 from datetime import datetime
+from models.Messages import MessageRole, Messages
+from models.Base import BaseDBModel
 
 
 # USER
@@ -10,7 +12,7 @@ class CreateUser(BaseModel):
     name: str
     email: str
     role: str = "user"
-    password: str = Field(..., min_length=4),
+    password: str = Field(..., min_length=4)
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
@@ -59,7 +61,7 @@ class Token(BaseModel):
     
     
 #chat
-class ChatSessionBase(BaseModel):
+class ChatSessionBase(BaseDBModel):
     """Base model for chat session data"""
     session_title: str = Field(..., description="Title of the chat session")
     session_id:str=Field(...,description="Unique Chat ID")
@@ -87,8 +89,8 @@ class CreateMessage(BaseModel):
     """Model for creating a new message"""
     session_id: str = Field(..., description="ID of the chat session this message belongs to")
     user_id: str = Field(..., description="ID of the user who sent the message")
-    role: str = Field(..., description="Role of the message sender")
-    content: Dict = Field(..., description="Content of the message")
+    role: MessageRole = Field(..., description="Role of the message sender")
+    content: str = Field(..., description="Content of the message")
     metadata: Dict = Field(default_factory=dict, description="Additional metadata for the message")
 
 
@@ -146,15 +148,19 @@ class UpdateMessage(BaseModel):
     is_visible: Optional[bool] = Field(None, description="Update visibility status")
     metadata: Optional[Dict] = Field(None, description="Updated metadata")
 
-class Messages(MessageBase):
-    """Model for a complete message with ID"""
-    id: str = Field(..., alias="_id", description="Unique identifier for the message")
-
+class Messages(BaseModel):
+    session_id: str
+    content: str
+    role: MessageRole
+    metadata: Dict[str , Any]
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
     class Config:
-        populate_by_name = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        arbitrary_types_allowed = True
+
+class MessageRole(str, Enum):
+    USER = "user"
+    ASSISTANT = "assistant"
 
 class MessageResponse(BaseModel):
     """Model for API responses containing message data"""
@@ -183,3 +189,12 @@ class MessageAnalytics(BaseModel):
     average_response_time: Optional[float]
     session_duration: Optional[float]
     created_at: datetime = Field(default_factory=datetime.now)
+    
+    
+class MessageUserInterface(BaseModel):
+    """Model for message data in the user interface"""
+    user_id: str
+    role: MessageRole
+    content: str
+    created_at: datetime = Field(default_factory=datetime.now)
+    metadata: Dict = Field(default_factory=dict)

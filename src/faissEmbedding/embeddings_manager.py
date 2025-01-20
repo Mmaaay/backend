@@ -14,7 +14,8 @@ from langchain_core.documents import Document
 from transformers import AutoModel, AutoTokenizer
 import torch
 import faiss
-
+from dotenv import load_dotenv
+load_dotenv()
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
@@ -24,12 +25,11 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
+HF_TOKEN = os.getenv("HF_TOKEN")
 # Constants
 VECTOR_STORE_DIR = "tafasir_quran_faiss_vectorstore"
 VECTOR_STORE_PATH = Path(VECTOR_STORE_DIR).absolute()  # Use absolute path
-MODEL_PATH = "sentence-transformers/paraphrase-albert-small-v2"
-MAX_MEMORY_USAGE = 0.75  # Maximum memory usage threshold (75%)
+MODEL_PATH = "models/embeddings"
 
 # Initialize environment and configurations
 warnings.filterwarnings("ignore")
@@ -41,7 +41,7 @@ executor = ThreadPoolExecutor(max_workers=2)
 async def create_embeddings():
     """Create embeddings with optimized memory settings."""
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model_kwargs = {'device': device}
+    model_kwargs = {'device': device , 'token':HF_TOKEN}
     encode_kwargs = {'normalize_embeddings': True}
 
     # Clear memory before loading
