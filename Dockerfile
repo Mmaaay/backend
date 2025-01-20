@@ -72,8 +72,11 @@ RUN pip install pip-tools
 # Copy requirements file
 COPY requirements.txt .
 
-# Generate locked requirements
-RUN pip-compile requirements.txt --output-file requirements.lock
+# Remove pip-compile step
+# RUN pip-compile requirements.txt --output-file requirements.lock
+
+# Simply copy the pre-generated file
+COPY requirements.lock .
 
 # Stage 1: Runtime image
 FROM nvcr.io/nvidia/cuda:12.1.0-runtime-ubuntu22.04 AS runtime
