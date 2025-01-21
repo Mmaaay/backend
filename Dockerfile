@@ -133,7 +133,7 @@ RUN wget https://www.python.org/ftp/python/3.12.0/Python-3.12.0.tgz && \
 RUN useradd -m appuser
 
 # Copy model files with ownership set to appuser
-COPY --chown=appuser:appuser --from=model /model /app/models/embeddings
+COPY --chown=appuser:appuser --from=model /model ./models/embeddings
 
 # Copy the virtual environment from the requirements stage
 COPY --from=requirements /opt/venv /opt/venv
