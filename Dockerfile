@@ -120,9 +120,6 @@ RUN apt-get update && apt-get install -y curl gnupg \
   && apt-get update && apt-get install -y nvidia-container-toolkit \
   && rm -rf /var/lib/apt/lists/*
 
-# Restart the container runtime to apply changes
-RUN apt-get install -y systemctl \
-  && systemctl restart docker
 
 # Install Python 3.12 from source with correct checksum
 WORKDIR /tmp
