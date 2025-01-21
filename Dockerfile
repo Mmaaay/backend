@@ -112,14 +112,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install NVIDIA Container Toolkit
-RUN curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
+RUN apt-get update && apt-get install -y curl gnupg \
+  && mkdir -p /usr/share/keyrings \
+  && curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
   && curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-    sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-    sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+     sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' > /etc/apt/sources.list.d/nvidia-container-toolkit.list \
+  && apt-get update && apt-get install -y nvidia-container-toolkit \
+  && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update && \
-    apt-get install -y nvidia-container-toolkit && \
-    sudo systemctl restart docker
+# Restart the container runtime to apply changes
+RUN apt-get install -y systemctl \
+  && systemctl restart docker
 
 # Install Python 3.12 from source with correct checksum
 WORKDIR /tmp
