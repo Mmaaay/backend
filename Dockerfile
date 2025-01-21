@@ -84,11 +84,9 @@ COPY requirements.txt .
 COPY requirements.lock .
 
 # Stage 1: Runtime image
-FROM nvcr.io/nvidia/cuda:12.5-runtime-ubuntu24.04 AS runtime
+FROM nvcr.io/nvidia/cuda:12.5.1-runtime-ubuntu22.04 AS runtime
 
 # Set CUDA environment variables
-ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
-ENV CUDA_HOME=/usr/local/cuda
 RUN apt-get update && apt-get install -y curl gnupg \
   && mkdir -p /usr/share/keyrings \
   && curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
@@ -96,6 +94,8 @@ RUN apt-get update && apt-get install -y curl gnupg \
      sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' > /etc/apt/sources.list.d/nvidia-container-toolkit.list \
   && apt-get update && apt-get install -y nvidia-container-toolkit \
   && rm -rf /var/lib/apt/lists/*
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+ENV CUDA_HOME=/usr/local/cuda
 
 # Install build requirements for Python 3.12
 WORKDIR /tmp
