@@ -84,7 +84,7 @@ COPY requirements.txt .
 COPY requirements.lock .
 
 # Stage 1: Runtime image
-FROM nvcr.io/nvidia/cuda:12.6.3-runtime-ubuntu22.04 AS runtime
+FROM nvcr.io/nvidia/cuda:12.5-runtime-ubuntu24.04 AS runtime
 
 # Set CUDA environment variables
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
