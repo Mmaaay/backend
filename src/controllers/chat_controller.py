@@ -31,7 +31,7 @@ async def create_session(
 ) :
     # Use current_user instead of token
     session.user_id = current_user.id
-    session.session_id = current_user.id
+    session.session_id = uuid4()
     session.session_title = session.session_title or "Chat Session"
 
     session_id = await chat_service.create_session(session.user_id, session.session_id, session.session_title)
@@ -50,7 +50,7 @@ async def send_message(
     if current_user.id is None:
         raise HTTPException(status_code=403, detail="Not authorized to access this session")
 
-    logger.info(f"Received message for session_id: {session_id} from user_id: {message.session_id}")
+    logger.info(f"Received message for session_id: {session_id} from user_id: {current_user.id}")
     
     # Create message stream
     async def event_generator():

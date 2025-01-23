@@ -218,31 +218,34 @@ async def retrieve_embedded_data(message: Optional[str], session_id: str) -> Opt
 
         vector_store = await state_manager.get_vector_store()
         
-        retrieved_context = vector_store.similarity_search_with_relevance_scores(message, k=5 )
-        
-        
-      
-        
-        # Get all documents for the session
-        # all_docs = []
-        # for doc_id, doc in vector_store.docstore._dict.items():
-        #     if doc.metadata.get("session_id") == session_id:
-        #         doc.metadata["id"] = doc_id
-        #         all_docs.append(doc)
-        
-        # Sort by timestamp
+        retrieved_context = vector_store.similarity_search(message, k=5 ,
+                                                           filters={"metadata.session_id": session_id})
+        docs_as_dicts = []
+        for doc in retrieved_context:
+            try:
+                doc_dict = {
+                    'content': doc.page_content,
+                    'metadata': doc.metadata,
+                    'timestamp': doc.metadata.get('timestamp', '1970-01-01')
+                }
+                docs_as_dicts.append(doc_dict)
+                logger.debug(f"Transformed document: {doc_dict}")
+            except Exception as e:
+                logger.error(f"Error transforming document: {e}")
+
+        # Sort transformed documents
         sorted_docs = sorted(
-            retrieved_context,
-            key=lambda x: datetime.fromisoformat(x[0].metadata.get("timestamp", "1970-01-01")),
-            reverse=True  # Most recent first
+            docs_as_dicts,
+            key=lambda x: datetime.fromisoformat(x['timestamp']),
+            reverse=True
         )
-     
-        
-        current_questions = [ctx[0].metadata['message'] for ctx in sorted_docs]
-        ai_responses = [ctx[0].metadata['Assistant']['response'] for ctx in sorted_docs]
-        
-        
-        
+
+        logger.debug(f"Sorted documents: {sorted_docs}")
+
+        # Extract questions and responses
+        current_questions = [doc['metadata']['message'] for doc in sorted_docs]
+        ai_responses = [doc['metadata']['Assistant']['response'] for doc in sorted_docs]
+
         # Format documents
         formatted_docs = []
         formatted_docs.append({

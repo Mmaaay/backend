@@ -75,16 +75,15 @@ async def login(dto: dto.LoginUser , res: Response, user_service: UserService = 
 @router.post("/password/update", status_code=204)
 async def update_password(
     dto: dto.UpdateUserPass,
-    current_user = Depends(dependencies.get_current_user),
     user_service: UserService = Depends(get_user_service)
 ):
     user = await user_service.get_user_by_email(dto.email)
     
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Email not valid")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email not valid")
 
     if not HashLib.validate(dto.old_password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Current password is incorrect")
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
     
     user_id = MongoIDConverter.ensure_object_id(user.id)
     await user_service.update_password(user_id, dto.new_password)
