@@ -17,7 +17,7 @@ from constants import HASH_SALT, ALGORITHM
 from utils.token import decode_token as token_decode
 
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login" )
 
 async def get_current_user(token: str = Depends(oauth2_scheme)) -> db.User:
     user_repo = db.UserRepository()
@@ -26,7 +26,6 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> db.User:
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    
     if not token:
         raise credentials_exception
         

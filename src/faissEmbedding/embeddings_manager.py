@@ -160,7 +160,7 @@ class StateManager:
         self._chat_history[session_id].append(message)
 
 
-async def embed_data(message: str, session_id: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def embed_data(message: str,  ai_response:str, session_id: str) -> Dict[str, Any]:
     """Embed data into vector store with error handling."""
     try:
         validate_inputs(message, session_id)
@@ -176,9 +176,14 @@ async def embed_data(message: str, session_id: str, metadata: Optional[Dict[str,
                 "source": "user",
                 "session_id": session_id,
                 "type": "conversation",
+                "message": message,
                 "timestamp": timestamp,
                 "is_question": True,
-                **(metadata or {})
+                "Assistant" : {
+                    "response": ai_response,
+                    "timestamp": timestamp
+                }
+               
             }
         )
 
@@ -213,28 +218,38 @@ async def retrieve_embedded_data(message: Optional[str], session_id: str) -> Opt
 
         vector_store = await state_manager.get_vector_store()
         
+        retrieved_context = vector_store.similarity_search_with_relevance_scores(message, k=5 )
+        
+        
+      
+        
         # Get all documents for the session
-        all_docs = []
-        for doc_id, doc in vector_store.docstore._dict.items():
-            if doc.metadata.get("session_id") == session_id:
-                doc.metadata["id"] = doc_id
-                all_docs.append(doc)
+        # all_docs = []
+        # for doc_id, doc in vector_store.docstore._dict.items():
+        #     if doc.metadata.get("session_id") == session_id:
+        #         doc.metadata["id"] = doc_id
+        #         all_docs.append(doc)
         
         # Sort by timestamp
         sorted_docs = sorted(
-            all_docs,
-            key=lambda x: datetime.fromisoformat(x.metadata.get("timestamp", "1970-01-01")),
+            retrieved_context,
+            key=lambda x: datetime.fromisoformat(x[0].metadata.get("timestamp", "1970-01-01")),
             reverse=True  # Most recent first
         )
+     
+        
+        current_questions = [ctx[0].metadata['message'] for ctx in sorted_docs]
+        ai_responses = [ctx[0].metadata['Assistant']['response'] for ctx in sorted_docs]
+        
+        
         
         # Format documents
         formatted_docs = []
-        for doc in sorted_docs:
-            formatted_docs.append({
-                "content": doc.page_content,
-                "metadata": doc.metadata,
-                "type": "history"
-            })
+        formatted_docs.append({
+            "user_question": current_questions,
+            "ai_response": ai_responses,
+            "type": "history"
+        })
         
         logger.info(f"Retrieved {len(formatted_docs)} documents for session {session_id}")
         return formatted_docs

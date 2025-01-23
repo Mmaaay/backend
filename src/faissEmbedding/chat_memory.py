@@ -24,23 +24,47 @@ from constants import GEMENI_API_KEY
 # Remove ConversationHistory class and its instance as we'll use retrieved messages instead
 
 system_template = """
-You are an Arabic Quranic assistant specializing in Tafsir. Your goal is to answer the User's question about the Quran accurately and respectfully, using retrieved Tafsir and Quranic Ayat.
+You are an Arabic Quranic assistant specializing in Tafsir. Your role is to provide accurate, respectful, and concise answers to questions about the Quran, using relevant Tafsir and Quranic Ayat for context.
 
-Current Question: {current_question}
-Retrieved Context: {context}
+### Context  
+- **Current Question:** {current_question}  
+- **Previous Questions:** {previous_questions}  
+- **Previous Answers:** {previous_answers}  
 
-Instructions:  
-1. Analyze the User's query to understand its intent and focus.  
-2. Review the retrieved context if available and incorporate relevant information.
-3. Provide clear, direct answers using simple language.
-4. Maintain a respectful and precise tone.
+### Instructions  
+1. **Understand the Query:**  
+   - Analyze the User's question to identify its intent and main focus.  
+   - Clarify whether the question relates to a specific Ayah, concept, or theme.  
+
+2. **Review Available Context:**  
+   - If retrieved Tafsir or Quranic Ayat are provided, incorporate the most relevant information.  
+   - Highlight any connections between the question and the broader Quranic message.  
+
+3. **Craft Your Response:**  
+   - Begin with a direct and concise answer.  
+   - Use simple and respectful language, avoiding overly complex terms.  
+   - Include the relevant Ayah(s) or Tafsir excerpts to support your response.  
+
+4. **Maintain Respectful Tone:**  
+   - Address the User with humility and respect.  
+   - Ensure that all interpretations align with established Quranic Tafsir principles.  
+
+5. **Focus on Clarity and Relevance:**  
+   - Avoid lengthy digressions or unrelated details.  
+   - Prioritize clarity and precision in your explanations.  
+
+End your response with an invitation to ask follow-up questions if needed.  
+
 """
 
 # Update prompt template to use simple string formatting
 prompt = ChatPromptTemplate.from_messages([
     ("system", system_template),
-    ("human", "{question}")  # This will contain the current question
+    MessagesPlaceholder("current_question"),
+    MessagesPlaceholder("previous_questions"),
+    MessagesPlaceholder("previous_answers"),
 ])
+    
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -105,11 +129,11 @@ def format_messages(message_input) -> list[BaseMessage]:
     else:
         raise ValueError("Messages must be a string, dictionary, or list of messages")
 
-async def process_chat(messages, retrieved_texts: List[dict], session_id: str = None):
+async def process_chat(messages, history_questions: List[str], history_ai_responses:List[str] ,session_id: str = None):
     """Process chat messages and return AI response"""
     # Instead of processing directly, use the streaming version
     response_chunks = []
-    async for chunk in process_chat_stream(messages, retrieved_texts, session_id):
+    async for chunk in process_chat_stream(messages, history_questions,history_ai_responses, session_id):
         response_chunks.append(chunk)
     return "".join(response_chunks)
 
@@ -137,16 +161,14 @@ def chunk_text(text: str, chunk_size: int = 10) -> List[str]:
 
 async def process_chat_stream(
     messages: List[str], 
-    retrieved_texts: List[str] = None, 
+    history_questions: List[str] = None,
+    history_ai_responses:List[str] = None, 
     session_id: str = None
 ) -> AsyncGenerator[str, None]:
     """Process chat messages and return AI response as a stream with smooth chunking"""
     try:
-        current_question = messages if isinstance(messages, str) else messages[0]
-        context = "\n".join([str(text) for text in (retrieved_texts or [])][-3:])
-        
-        logger.info(f"Processing question: {current_question}")
-        logger.info(f"With context: {context}")
+        current_question = format_messages(messages) if isinstance(messages, str) else format_messages([messages[0]])
+
 
         model = ChatGoogleGenerativeAI(
             model="gemini-1.5-pro",
@@ -172,8 +194,8 @@ async def process_chat_stream(
         logger.info("Starting stream for session: %s", session_id)
         async for chunk in chain.astream({
             "current_question": current_question,
-            "context": context,
-            "question": current_question
+            "previous_questions": history_questions,
+            "previous_answers": history_ai_responses
         }):
             # Add chunk to buffer
             text_buffer += chunk
@@ -201,13 +223,8 @@ async def process_chat_stream(
         logger.error("Error in streaming chat: %s", str(e), exc_info=True)
         yield f"Error: {str(e)}"
 
-async def embed_system_response(response: str, session_id: str, question: str):
+async def embed_system_response(current_question: str, ai_response: str, session_id: str):
     """Embeds the system's response with metadata"""
-    metadata = {
-        'timestamp': datetime.now().isoformat(),
-        'is_response': True,
-        'related_question': question
-    }
-    return await embed_data(response, session_id, metadata)
+  
+    return await embed_data(current_question, ai_response, session_id)
 
-# ...existing code...

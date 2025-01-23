@@ -44,70 +44,83 @@ class ChatService:
             # 1. Save the user's current message
             if metadata is None:
                 metadata = {}
-            user_message_data = {
-                "session_id": session_id,
-                "user_id": user_id,
-                "role": MessageRole.USER.value,
-                "content": content,
-                "is_deleted": False,
-                "created_at": datetime.now(),
-                "metadata": metadata,
-            }
-            await self.message_repo.create_message(user_message_data)
 
             # 2. Retrieve all session history including the current message
-            retrieved_content = await retrieve_message(None, session_id)
+            retrieved_content = await retrieve_message(content, session_id) or []
+            
+             # ({
+            #     "user_question": current_questions,
+            #     "ai_response": ai_responses,
+            #     "type": "history"
+            # })
             
             ai_response_chunks = []
-            retrieved_content = retrieved_content or []
-            
-            # Sort by timestamp ascending to maintain conversation flow
-            sorted_content = sorted(
-                retrieved_content,
-                key=lambda x: datetime.fromisoformat(x['metadata']['timestamp'])
-            )
             
             # Extract related questions from history
             history_questions = [
-                msg['metadata']['related_question']
-                for msg in sorted_content
-                if msg.get('metadata') and msg['metadata'].get('related_question')
+                "{} \n".format([item.get('user_question') for item in retrieved_content])
+            ]
+            history_ai_responses = [
+                "{} \n".format([item.get('ai_response') for item in retrieved_content])
             ]
             
-            # Current question to be processed
+            # # Current question to be processed
             current_question = content
             
-            # 3. Initiate AI response streaming
+            # # # # 3. Initiate AI response streaming
             async for chunk in process_chat_stream(
                 current_question,
                 history_questions,
+                history_ai_responses,
                 session_id=session_id
             ):
                 logger.debug(f"Streaming chunk: {chunk}")
                 ai_response_chunks.append(chunk)
                 yield chunk
 
-            # 4. Combine chunks and embed the complete response
+            # # # # 4. Combine chunks and embed the complete response
             ai_content = "".join(ai_response_chunks).strip()
             if ai_content:
-                ai_message_data = {
+                full_message_data = {
                     "session_id": session_id,
                     "user_id": user_id,
-                    "role": MessageRole.ASSISTANT.value,
-                    "content": ai_content,
+                    "role": MessageRole.USER.value,
+                    "content": current_question,
                     "is_deleted": False,
                     "created_at": datetime.now(),
                     "metadata": {
                         **metadata,
-                        "related_question": current_question,
+                        "ai_response": ai_content,
+                        "role": MessageRole.ASSISTANT.value,
                         "timestamp": datetime.now().isoformat()
                     },
                 }
-                await self.message_repo.create_message(ai_message_data)
+                await self.message_repo.create_message(full_message_data)
                 
-                embed_response_result = await embed_system_response(ai_content, session_id, current_question)
+                embed_response_result = await embed_system_response(current_question, ai_content ,session_id, )
                 if embed_response_result.get("status") != "success":
                     logger.error(f"Failed to embed AI response: {embed_response_result.get('message')}")
+                    
+            else:
+                full_message_data={
+                    "session_id": session_id,
+                    "user_id": user_id,
+                    "role": MessageRole.USER.value,
+                    "content": current_question,
+                    "is_deleted": False,
+                    "created_at": datetime.now(),
+                    "metadata": {
+                        **metadata,
+                        "ai_response": "Failed to generate response",
+                        "role": MessageRole.USER.value,
+                        "timestamp": datetime.now().isoformat()
+                    },
+                }
+                await self.message_repo.create_message(full_message_data)
+                embed_response_result = await embed_system_response(current_question, "Failed to generate response", session_id)
+                if embed_response_result.get("status") != "success":
+                    logger.error(f"Failed to embed AI response: {embed_response_result.get('message')}")
+                    
 
         except Exception as e:
             logger.error(f"Error in create_message_stream: {str(e)}", exc_info=True)
