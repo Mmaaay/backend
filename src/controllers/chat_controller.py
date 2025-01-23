@@ -5,7 +5,6 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Header, Request, status
 from fastapi.responses import StreamingResponse
-from utils.OAuth2 import oauth2_scheme
 import models.dto as dto
 from constants import COOKIES_KEY_NAME
 from models import Messages

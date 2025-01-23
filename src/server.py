@@ -52,7 +52,7 @@ app = create_app()
 
 def main(argv=sys.argv[1:]):
     try:
-        uvicorn.run("server:app", host="0.0.0.0", port=3000, reload=True)
+        uvicorn.run("server:app", host="0.0.0.0", port=3000, reload=False)
     except Exception as e:
         logger.error(f"Failed to start the server: {str(e)}")
     except KeyboardInterrupt:
