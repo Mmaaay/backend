@@ -206,3 +206,11 @@ class MessageDetails(BaseModel):
     content: List[str]
     created_at: datetime = Field(default_factory=datetime.now)
     metadata: Dict = Field(default_factory=dict)
+    
+
+
+class GetUserSessionsRequest(BaseModel):
+    user_id: str   
+class GetUserMessagesRequest(BaseModel):
+    user_id: str   
+    session_id: str

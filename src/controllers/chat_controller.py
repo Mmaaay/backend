@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Header, Request, status
 from fastapi.responses import StreamingResponse
-from models.dto import createChatSessionResponse, MessageContent, MessageDetails, MessageUserInterface
+from models.dto import createChatSessionResponse, MessageContent, MessageDetails, MessageUserInterface, GetUserSessionsRequest, GetUserMessagesRequest
 from constants import COOKIES_KEY_NAME
 from models import Messages
 from services.chat_service import ChatService
@@ -44,9 +44,8 @@ async def create_session(
 
 
 #send a message at the unique session id
-@router.post("/send_message", status_code=status.HTTP_201_CREATED)
+@router.post("/send_message/", status_code=status.HTTP_201_CREATED)
 async def send_message(
-    session_id: str,
     message: MessageContent,
     chat_service: ChatService = Depends(get_chat_service),
     current_user = Depends(get_current_user)
@@ -55,13 +54,13 @@ async def send_message(
     if current_user.id is None:
         raise HTTPException(status_code=403, detail="Not authorized to access this session")
 
-    logger.info(f"Received message for session_id: {session_id} from user_id: {current_user.id}")
+    logger.info(f"Received message for session_id: {message.session_id} from user_id: {current_user.id}")
     
    # Create message stream
     async def event_generator():
         try:
             async for chunk in chat_service.create_message_stream(
-                session_id=session_id,
+                session_id=message.session_id,
                 user_id= current_user.id,  # Ensure this is the correct user_id
                 content=message.content,
                 role=message.role
@@ -72,18 +71,18 @@ async def send_message(
             logger.error(f"Error during event generation: {str(e)}", exc_info=True)
             yield f"Error: {str(e)}"
     
-    logger.info(f"Streaming response for session_id: {session_id}")
+    logger.info(f"Streaming response for session_id: {message.session_id}")
     return StreamingResponse(event_generator(), media_type="text/plain")
 
 #get all chats for a specific session id
-@router.get("/get_user_sessions", response_model=List[MessageUserInterface]) 
+@router.get("/get_user_sessions/", response_model=List[MessageUserInterface]) 
 async def get_chat(
-    user_id: str,
+    request: GetUserSessionsRequest,
     chat_service: ChatService = Depends(get_chat_service),
     current_user = Depends(get_current_user)
 ) -> List[MessageUserInterface]:
     # Verify user has access to this session
-    chat = await chat_service.get_user_sessions(user_id)
+    chat = await chat_service.get_user_sessions(request.user_id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat session not found")
     if str(chat[0].user_id) != str(current_user.id):
@@ -92,11 +91,11 @@ async def get_chat(
 
 @router.get("/get_chat_details", response_model=List[Messages.Messages])
 async def get_chat_history(
-    session_id: str,
+    request: GetUserMessagesRequest,
     chat_service: ChatService = Depends(get_chat_service),
     current_user = Depends(get_current_user)
 ):
     if current_user.id is None:
         raise HTTPException(status_code=403, detail="Not authorized to access this session")
-    return await chat_service.get_message_details(session_id)
+    return await chat_service.get_message_details(request.session_id)
     pass
