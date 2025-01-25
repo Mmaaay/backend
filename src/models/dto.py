@@ -81,7 +81,6 @@ class CreateChatSession(ChatSessionBase):
 class createChatSessionResponse(BaseModel):
     """Model for creating a new chat session"""
     user_id : str = Field(..., description="ID of the user who owns this session")
-    session_id : str = Field(..., description="ID of the session")
     session_title : str = Field(..., description="Title of the session")
     pass
 
@@ -193,8 +192,17 @@ class MessageAnalytics(BaseModel):
     
 class MessageUserInterface(BaseModel):
     """Model for message data in the user interface"""
+    session_id: str
     user_id: str
-    role: MessageRole
-    content: str
+    session_title: str
+    created_at: datetime = Field(default_factory=datetime.now)
+    metadata: Dict = Field(default_factory=dict)
+    
+class MessageDetails(BaseModel):
+    """Model for message details in the user interface"""
+    session_id: str
+    user_id: str
+    role: str
+    content: List[str]
     created_at: datetime = Field(default_factory=datetime.now)
     metadata: Dict = Field(default_factory=dict)

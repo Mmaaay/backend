@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Header, Request, status
 from fastapi.responses import StreamingResponse
-import models.dto as dto
+from models.dto import createChatSessionResponse, MessageContent, MessageDetails, MessageUserInterface
 from constants import COOKIES_KEY_NAME
 from models import Messages
 from services.chat_service import ChatService
@@ -25,39 +25,44 @@ def get_chat_service():
 
 @router.post("/create_session", status_code=status.HTTP_201_CREATED)
 async def create_session(
-    session: dto.createChatSessionResponse,
-    current_user: user_dependency,
-    chat_service: ChatService = Depends(get_chat_service)
+    session: createChatSessionResponse,
+    chat_service: ChatService = Depends(get_chat_service),
+    current_user = Depends(get_current_user)
 ) :
+    # Verify user has access to this session
+    
+    if current_user.id is None:
+        raise HTTPException(status_code=403, detail="Not authorized to access this session")
+    
     # Use current_user instead of token
     session.user_id = current_user.id
-    session.session_id = uuid4()
+    session_id = str(uuid4())  # Convert UUID to string
     session.session_title = session.session_title or "Chat Session"
 
-    session_id = await chat_service.create_session(session.user_id, session.session_id, session.session_title)
+    session_id = await chat_service.create_session(session.user_id, session_id, session.session_title)
     return session_id
 
 
 #send a message at the unique session id
-@router.post("/send_message/{session_id}", status_code=status.HTTP_201_CREATED)
+@router.post("/send_message/", status_code=status.HTTP_201_CREATED)
 async def send_message(
     session_id: str,
-    message: dto.MessageContent,
-    current_user: user_dependency,
-    chat_service: ChatService = Depends(get_chat_service)
+    message: MessageContent,
+    chat_service: ChatService = Depends(get_chat_service),
+    current_user = Depends(get_current_user)
 ):
-    # Verify user has access to this session
+    #Verify user has access to this session
     if current_user.id is None:
         raise HTTPException(status_code=403, detail="Not authorized to access this session")
 
     logger.info(f"Received message for session_id: {session_id} from user_id: {current_user.id}")
     
-    # Create message stream
+   # Create message stream
     async def event_generator():
         try:
             async for chunk in chat_service.create_message_stream(
                 session_id=session_id,
-                user_id= current_user.id,  # Ensure this is the correct user_id
+                user_id= '678d4b4e8182e651a91a6e52',  # Ensure this is the correct user_id
                 content=message.content,
                 role=message.role
             ):
@@ -71,17 +76,27 @@ async def send_message(
     return StreamingResponse(event_generator(), media_type="text/plain")
 
 #get all chats for a specific session id
-@router.get("/get_chat/{session_id}", response_model=List[dto.MessageUserInterface]) 
+@router.get("/get_user_sessions/", response_model=List[MessageUserInterface]) 
 async def get_chat(
-    session_id: str,
-    current_user: user_dependency,
-    chat_service: ChatService = Depends(get_chat_service)
-) -> List[Messages.Messages]:
+    user_id: str,
+    chat_service: ChatService = Depends(get_chat_service),
+    current_user = Depends(get_current_user)
+) -> List[MessageUserInterface]:
     # Verify user has access to this session
-    chat = await chat_service.get_all_messages(session_id)
+    chat = await chat_service.get_user_sessions(user_id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat session not found")
     if str(chat[0].user_id) != str(current_user.id):
         raise HTTPException(status_code=403, detail="Not authorized to access this chat")
     return chat
 
+@router.get("/get_chat_details", response_model=List[Messages.Messages])
+async def get_chat_history(
+    session_id: str,
+    chat_service: ChatService = Depends(get_chat_service),
+    current_user = Depends(get_current_user)
+):
+    if current_user.id is None:
+        raise HTTPException(status_code=403, detail="Not authorized to access this session")
+    return await chat_service.get_message_details(session_id)
+    pass

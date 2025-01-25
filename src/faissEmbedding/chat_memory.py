@@ -227,4 +227,3 @@ async def embed_system_response(current_question: str, ai_response: str, session
     """Embeds the system's response with metadata"""
   
     return await embed_data(current_question, ai_response, session_id)
-

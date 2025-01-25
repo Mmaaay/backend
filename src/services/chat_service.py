@@ -1,9 +1,9 @@
 import logging
 from datetime import datetime
 from typing import List, Optional, AsyncGenerator
-
-from models.dto import ChatSessionBase, MessageContent, MessageRole
+from models.dto import ChatSessionBase, MessageContent, MessageRole , MessageDetails, MessageUserInterface
 from models import Messages
+from bson import ObjectId
 from repos.chat_repository import ChatRepository, MessageRepository
 from faissEmbedding.chat_memory import (embed_system_response, process_chat, 
                                       embed_message, process_chat_stream, retrieve_message)
@@ -14,8 +14,11 @@ class ChatService:
         self.chat_repo = ChatRepository()
         self.message_repo = MessageRepository()
         
-    async def get_all_messages(self, session_id:str) -> List[Messages.Messages]:
-        return await self.message_repo.get_chat_history(session_id)
+    async def get_user_sessions(self, user_id:str) -> List[MessageUserInterface]:
+        #convert user_id to object id
+        return await self.chat_repo.get_user_sessions(user_id)
+    
+    
 
     async def create_session(
         self,
@@ -125,11 +128,20 @@ class ChatService:
         except Exception as e:
             logger.error(f"Error in create_message_stream: {str(e)}", exc_info=True)
             yield f"Error: {str(e)}"
+            
+            
     async def get_session_chats(
         self,
         session_id: str,
     ) -> List[Messages.Messages]:
         return await self.message_repo.get_chat_history(session_id)
+    
+    async def get_message_details(
+        self,
+        session_id: str
+    ) -> List[Messages.Messages]:
+        return await self.message_repo.get_message_details(session_id)
+    
 
 
 

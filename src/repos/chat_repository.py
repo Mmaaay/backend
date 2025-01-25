@@ -1,10 +1,9 @@
 from typing import List, Optional
 from datetime import datetime
-from models.dto import ChatSessionBase
+from models.dto import ChatSessionBase, MessageContent, MessageUserInterface , MessageDetails
 from models.Messages import Messages
 from repos.base_repository import BaseRepository
 from db.collections import Collections
-
 class ChatRepository(BaseRepository[ChatSessionBase]):
     def __init__(self):
         super().__init__(Collections.chat_sessions(), ChatSessionBase)
@@ -75,3 +74,21 @@ class MessageRepository(BaseRepository[Messages]):
             message['_id'] = str(message['_id'])
             messages.append(Messages(**message))
         return messages
+    
+    
+    
+    
+    async def get_message_details(self, session_id: str) -> List[MessageDetails]:
+        cursor = self.collection.find(
+            {"session_id": session_id}
+        ).sort("created_at", 1)
+        
+        messages = []
+        async for message in cursor:
+            message['_id'] = str(message['_id'])
+            messages.append(Messages(**message))
+        print(messages)
+        return messages
+    
+    
+    
