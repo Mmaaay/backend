@@ -44,7 +44,7 @@ async def create_session(
 
 
 #send a message at the unique session id
-@router.post("/send_message/", status_code=status.HTTP_201_CREATED)
+@router.post("/send_message", status_code=status.HTTP_201_CREATED)
 async def send_message(
     session_id: str,
     message: MessageContent,
@@ -76,7 +76,7 @@ async def send_message(
     return StreamingResponse(event_generator(), media_type="text/plain")
 
 #get all chats for a specific session id
-@router.get("/get_user_sessions/", response_model=List[MessageUserInterface]) 
+@router.get("/get_user_sessions", response_model=List[MessageUserInterface]) 
 async def get_chat(
     user_id: str,
     chat_service: ChatService = Depends(get_chat_service),
