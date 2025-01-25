@@ -43,21 +43,19 @@ async def create_session(
 async def send_message(
     session_id: str,
     message: dto.MessageContent,
-    current_user: user_dependency,
     chat_service: ChatService = Depends(get_chat_service)
-):
-    # Verify user has access to this session
-    if current_user.id is None:
-        raise HTTPException(status_code=403, detail="Not authorized to access this session")
+) -> dto.MessageContent:
+    #Verify user has access to this session
+    # if current_user.id is None:
+    #     raise HTTPException(status_code=403, detail="Not authorized to access this session")
 
-    logger.info(f"Received message for session_id: {session_id} from user_id: {current_user.id}")
     
     # Create message stream
     async def event_generator():
         try:
             async for chunk in chat_service.create_message_stream(
                 session_id=session_id,
-                user_id= current_user.id,  # Ensure this is the correct user_id
+                user_id= "123123asd",  # Ensure this is the correct user_id
                 content=message.content,
                 role=message.role
             ):

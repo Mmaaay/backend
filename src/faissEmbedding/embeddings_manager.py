@@ -160,11 +160,10 @@ class StateManager:
         self._chat_history[session_id].append(message)
 
 
-async def embed_data(message: str,  ai_response:str, session_id: str) -> Dict[str, Any]:
+async def embed_data(message: str,  ai_response:str , user_id:str) -> Dict[str, Any]:
     """Embed data into vector store with error handling."""
     try:
-        validate_inputs(message, session_id)
-        logger.info(f"Embedding data for session: {session_id}")
+        logger.info(f"Embedding data for session: {user_id}")
         
         vector_store = await state_manager.get_vector_store()
         timestamp = str(datetime.now())
@@ -174,7 +173,7 @@ async def embed_data(message: str,  ai_response:str, session_id: str) -> Dict[st
             page_content=message,
             metadata={
                 "source": "user",
-                "session_id": session_id,
+                "user_id" : user_id,
                 "type": "conversation",
                 "message": message,
                 "timestamp": timestamp,
@@ -188,7 +187,7 @@ async def embed_data(message: str,  ai_response:str, session_id: str) -> Dict[st
         )
 
         # Generate unique ID
-        doc_id = f"document_{session_id}_{timestamp}"
+        doc_id = f"document_{user_id}_{timestamp}"
         
         try:
             # Add document and save
@@ -210,16 +209,16 @@ async def embed_data(message: str,  ai_response:str, session_id: str) -> Dict[st
         return {"status": "error", "message": str(e)}
 
 
-async def retrieve_embedded_data(message: Optional[str], session_id: str) -> Optional[List[dict]]:
+async def retrieve_embedded_data(message: Optional[str], user_id:Optional[str] , k_num=5) -> Optional[List[dict]]:
     """Retrieve embedded data and manage chat history."""
     try:
-        validate_inputs(message, session_id)
-        logger.info(f"Retrieving data for session: {session_id}")
+        logger.info(f"Retrieving data for session: {user_id}")
 
         vector_store = await state_manager.get_vector_store()
-        
-        retrieved_context = vector_store.similarity_search(message, k=5 ,
-                                                           filters={"metadata.session_id": session_id})
+        if(user_id):
+            retrieved_context = vector_store.similarity_search(message, k=k_num ,   filter= { "user_id":user_id}                                                )
+                                                           
+        print("retrieved \n\n\n", retrieved_context)
         docs_as_dicts = []
         for doc in retrieved_context:
             try:
@@ -254,7 +253,7 @@ async def retrieve_embedded_data(message: Optional[str], session_id: str) -> Opt
             "type": "history"
         })
         
-        logger.info(f"Retrieved {len(formatted_docs)} documents for session {session_id}")
+        logger.info(f"Retrieved {len(formatted_docs)} documents for session {user_id}")
         return formatted_docs
 
     except Exception as e:

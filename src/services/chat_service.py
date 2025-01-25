@@ -45,24 +45,10 @@ class ChatService:
             if metadata is None:
                 metadata = {}
 
-            # 2. Retrieve all session history including the current message
-            retrieved_content = await retrieve_message(content, session_id) or []
-            
-             # ({
-            #     "user_question": current_questions,
-            #     "ai_response": ai_responses,
-            #     "type": "history"
-            # })
-            
+          
             ai_response_chunks = []
             
-            # Extract related questions from history
-            history_questions = [
-                "{} \n".format([item.get('user_question') for item in retrieved_content])
-            ]
-            history_ai_responses = [
-                "{} \n".format([item.get('ai_response') for item in retrieved_content])
-            ]
+          
             
             # # Current question to be processed
             current_question = content
@@ -70,14 +56,12 @@ class ChatService:
             # # # # 3. Initiate AI response streaming
             async for chunk in process_chat_stream(
                 current_question,
-                history_questions,
-                history_ai_responses,
-                session_id=session_id
+                session_id=session_id,
+                user_id=user_id,
             ):
                 logger.debug(f"Streaming chunk: {chunk}")
                 ai_response_chunks.append(chunk)
                 yield chunk
-
             # # # # 4. Combine chunks and embed the complete response
             ai_content = "".join(ai_response_chunks).strip()
             if ai_content:
@@ -97,9 +81,7 @@ class ChatService:
                 }
                 await self.message_repo.create_message(full_message_data)
                 
-                embed_response_result = await embed_system_response(current_question, ai_content ,session_id, )
-                if embed_response_result.get("status") != "success":
-                    logger.error(f"Failed to embed AI response: {embed_response_result.get('message')}")
+          
                     
             else:
                 full_message_data={
@@ -117,9 +99,7 @@ class ChatService:
                     },
                 }
                 await self.message_repo.create_message(full_message_data)
-                embed_response_result = await embed_system_response(current_question, "Failed to generate response", session_id)
-                if embed_response_result.get("status") != "success":
-                    logger.error(f"Failed to embed AI response: {embed_response_result.get('message')}")
+           
                     
 
         except Exception as e:

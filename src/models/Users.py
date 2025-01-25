@@ -8,9 +8,10 @@ class User(BaseDBModel):
     name: str
     email: EmailStr
     password: str
-    role: str
+    role: Optional[str] = Field(default="user")
     
-    class Role(StrEnum):
-        ADMIN = "admin"
-        USER = "user"
-        GUEST = "guest"
+
+class Role(StrEnum):
+    ADMIN = "admin"
+    USER = "user"
+    GUEST = "guest"
