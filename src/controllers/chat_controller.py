@@ -35,11 +35,10 @@ async def create_session(
         raise HTTPException(status_code=403, detail="Not authorized to access this session")
     
     # Use current_user instead of token
-    session.user_id = current_user.id
     session_id = str(uuid4())  # Convert UUID to string
     session.session_title = session.session_title or "Chat Session"
 
-    await chat_service.create_session(session.user_id, session_id, session.session_title)
+    await chat_service.create_session(current_user.id, session_id, session.session_title)
     return session_id
 
 

@@ -80,7 +80,6 @@ class CreateChatSession(ChatSessionBase):
 
 class createChatSessionResponse(BaseModel):
     """Model for creating a new chat session"""
-    user_id : str = Field(..., description="ID of the user who owns this session")
     session_title : str = Field(..., description="Title of the session")
     pass
 
