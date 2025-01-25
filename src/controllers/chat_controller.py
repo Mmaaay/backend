@@ -39,7 +39,7 @@ async def create_session(
     session_id = str(uuid4())  # Convert UUID to string
     session.session_title = session.session_title or "Chat Session"
 
-    session_id = await chat_service.create_session(session.user_id, session_id, session.session_title)
+    await chat_service.create_session(session.user_id, session_id, session.session_title)
     return session_id
 
 

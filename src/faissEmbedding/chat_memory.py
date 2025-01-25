@@ -189,7 +189,7 @@ async def process_chat_stream(
         
         # Buffer for accumulating partial words/sentences
         text_buffer = ""
-        CHUNK_SIZE = 30  # Adjust this value to control streaming smoothness
+        CHUNK_SIZE = 2  # Reduced chunk size for smoother streaming
         
         logger.info("Starting stream for session: %s", session_id)
         async for chunk in chain.astream({
@@ -197,23 +197,22 @@ async def process_chat_stream(
             "previous_questions": history_questions,
             "previous_answers": history_ai_responses
         }):
-            # Add chunk to buffer
             text_buffer += chunk
-            
-            # Process complete sentences or when buffer gets too large
-            if len(text_buffer) >= CHUNK_SIZE or any(x in text_buffer for x in ['.', '!', '?', '\n']):
-                # Split into chunks while preserving word boundaries
+
+            # Process buffer if conditions are met
+            if len(text_buffer) >= CHUNK_SIZE * initial_scale_factor or any(x in text_buffer for x in ['.', '!', '?', '\n']):
                 chunks = chunk_text(text_buffer, CHUNK_SIZE)
                 
-                # Yield all complete chunks except possibly the last one
+                # Yield complete chunks
                 for complete_chunk in chunks[:-1]:
-                    await asyncio.sleep(0.01)  # Small delay for smoother streaming
+                    await asyncio.sleep(min(0.005, len(complete_chunk) * 0.0001))
                     yield complete_chunk + " "
                 
-                # Keep any remaining text in the buffer
+                # Keep remaining text in buffer
                 text_buffer = chunks[-1] if chunks else ""
-        
-        # Yield any remaining text in the buffer
+                initial_scale_factor = 1  # Reset after initial burst
+
+# Yield remaining text
         if text_buffer:
             yield text_buffer
 
