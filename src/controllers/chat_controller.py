@@ -62,7 +62,7 @@ async def send_message(
         try:
             async for chunk in chat_service.create_message_stream(
                 session_id=session_id,
-                user_id= '678d4b4e8182e651a91a6e52',  # Ensure this is the correct user_id
+                user_id= current_user.id,  # Ensure this is the correct user_id
                 content=message.content,
                 role=message.role
             ):
