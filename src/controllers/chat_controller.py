@@ -44,7 +44,7 @@ async def create_session(
 
 
 #send a message at the unique session id
-@router.post("/send_message/", status_code=status.HTTP_201_CREATED)
+@router.post("/send_message", status_code=status.HTTP_201_CREATED)
 async def send_message(
     message: MessageContent,
     chat_service: ChatService = Depends(get_chat_service),
@@ -75,14 +75,14 @@ async def send_message(
     return StreamingResponse(event_generator(), media_type="text/plain")
 
 #get all chats for a specific session id
-@router.get("/get_user_sessions/", response_model=List[MessageUserInterface]) 
+@router.get("/get_user_sessions", response_model=List[MessageUserInterface]) 
 async def get_chat(
     request: GetUserSessionsRequest,
     chat_service: ChatService = Depends(get_chat_service),
     current_user = Depends(get_current_user)
 ) -> List[MessageUserInterface]:
     # Verify user has access to this session
-    chat = await chat_service.get_user_sessions(request.user_id)
+    chat = await chat_service.get_user_sessions(current_user.id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat session not found")
     if str(chat[0].user_id) != str(current_user.id):
