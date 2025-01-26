@@ -269,22 +269,23 @@ async def retrieve_embedded_data(message: Optional[str], user_id: str) -> Option
         retrieved_context = await asyncio.wait_for(
                 asyncio.get_event_loop().run_in_executor(
                     executor,
-                    lambda: vector_store.similarity_search(message, k=2, filters={"user_id": user_id})
+                    lambda: vector_store.similarity_search_with_score(message, k=1, filters={"user_id": user_id})
                 ),
                 timeout=30
             )
         docs_as_dicts = []
-        for doc in retrieved_context:
-            try:
-                doc_dict = {
-                    'content': doc.page_content,
-                    'metadata': doc.metadata,
-                    'timestamp': doc.metadata.get('timestamp', '1970-01-01')
-                }
-                docs_as_dicts.append(doc_dict)
-                logger.debug(f"Transformed document: {doc_dict}")
-            except Exception as e:
-                logger.error(f"Error transforming document: {e}")
+        for doc, score in retrieved_context:
+            if score > 0.8:  # Only include results with a score > 0.8
+                try:
+                    doc_dict = {
+                        'content': doc.page_content,
+                        'metadata': doc.metadata,
+                        'timestamp': doc.metadata.get('timestamp', '1970-01-01'),
+                    }
+                    docs_as_dicts.append(doc_dict)
+                    logger.debug(f"Transformed document: {doc_dict}")
+                except Exception as e:
+                     logger.error(f"Error transforming document: {e}")
 
         # Sort transformed documents
         sorted_docs = sorted(
@@ -292,7 +293,7 @@ async def retrieve_embedded_data(message: Optional[str], user_id: str) -> Option
             key=lambda x: datetime.fromisoformat(x['timestamp']),
             reverse=True
         )
-
+        
         logger.debug(f"Sorted documents: {sorted_docs}")
 
         # Extract questions and responses

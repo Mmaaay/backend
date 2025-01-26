@@ -87,13 +87,8 @@ class ChatService:
             ai_content = "".join(ai_response_chunks).strip()
             print(ai_content)
             if ai_content:
-                embed_response_result = await embed_system_response(current_question, ai_content, user_id)
-                if embed_response_result is None:
-                    logger.error("embed_system_response returned None")
-                elif embed_response_result.get("status") != "success":
-                    logger.error(f"Failed to embed AI response: {embed_response_result.get('message')}")
-
-                full_message_data = {
+                # Create the user message before embedding
+                full_user_message_data = {
                     "session_id": session_id,
                     "user_id": user_id,
                     "role": MessageRole.USER.value,
@@ -102,24 +97,41 @@ class ChatService:
                     "created_at": datetime.now(),
                     "metadata": {
                         **metadata,
-                        "ai_response": ai_content,
+                        "role": MessageRole.USER.value,
+                        "timestamp": datetime.now().isoformat()
+                    },
+                }
+                await asyncio.wait_for(
+                    self.message_repo.create_message(full_user_message_data), timeout=30
+                )
+                
+                # Create the AI message before embedding
+                full_ai_message_data = {
+                    "session_id": session_id,
+                    "user_id": user_id,
+                    "role": MessageRole.ASSISTANT.value,
+                    "content": ai_content,
+                    "is_deleted": False,
+                    "created_at": datetime.now(),
+                    "metadata": {
                         "role": MessageRole.ASSISTANT.value,
                         "timestamp": datetime.now().isoformat()
                     },
                 }
                 await asyncio.wait_for(
-                    self.message_repo.create_message(full_message_data), timeout=30
+                    self.message_repo.create_message(full_ai_message_data), timeout=30
                 )
                 
-                # Release references
-                del embed_response_result, full_message_data, ai_content
-
-            else:
-                embed_response_result = await embed_system_response(current_question, "Failed to generate response", user_id)
+                embed_response_result = await embed_system_response(current_question, ai_content, user_id)
                 if embed_response_result is None:
                     logger.error("embed_system_response returned None")
                 elif embed_response_result.get("status") != "success":
                     logger.error(f"Failed to embed AI response: {embed_response_result.get('message')}")
+
+                # Release references
+                del embed_response_result, full_user_message_data, full_ai_message_data, ai_content
+
+            else:
 
                 full_message_data={
                     "session_id": session_id,
@@ -137,6 +149,11 @@ class ChatService:
                 }
                 await self.message_repo.create_message(full_message_data)
                 
+                embed_response_result = await embed_system_response(current_question, "Failed to generate response", user_id)
+                if embed_response_result is None:
+                    logger.error("embed_system_response returned None")
+                elif embed_response_result.get("status") != "success":
+                    logger.error(f"Failed to embed AI response: {embed_response_result.get('message')}")
                 
                 # Release references
                 del embed_response_result, full_message_data
