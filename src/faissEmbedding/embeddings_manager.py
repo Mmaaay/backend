@@ -11,6 +11,8 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from transformers import AutoModel, AutoTokenizer
 import torch
+import concurrent.futures
+import tiktoken
 import faiss
 from dotenv import load_dotenv
 import asyncio
@@ -59,13 +61,16 @@ async def create_embeddings():
                     encode_kwargs=encode_kwargs
                 )
             ),
-            timeout=30
+            timeout=30,
         )
+            
+           
         return embeddings
     except asyncio.TimeoutError:
         logger.error("Embedding creation timed out after 30 seconds")
         raise
 
+shared_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 class StateManager:
     """Memory-efficient state manager for embeddings and vector store."""
     def __init__(self):
@@ -99,24 +104,31 @@ class StateManager:
         return self._vector_store
 
     async def _initialize_vector_store(self):
-        """Initialize vector store asynchronously."""
         logger.info("Initializing vector store")
         try:
+            # Acquire embeddings
             embeddings = await self.get_embeddings()
 
-            # Try to load existing vector store first
+            # ...existing code...
+            # Use shared_executor for all blocking operations
+            loop = asyncio.get_event_loop()
             if (VECTOR_STORE_PATH / "index.faiss").exists():
                 logger.info("Loading existing vector store")
-                self._vector_store = FAISS.load_local(
-                    folder_path=str(VECTOR_STORE_PATH),
-                    embeddings=embeddings,
-                    allow_dangerous_deserialization=True
+                self._vector_store = await loop.run_in_executor(
+                    shared_executor,
+                    lambda: FAISS.load_local(
+                        folder_path=str(VECTOR_STORE_PATH),
+                        embeddings=embeddings,
+                        allow_dangerous_deserialization=True
+                    )
                 )
                 logger.info(f"Loaded existing vector store with {len(self._vector_store.docstore._dict)} documents")
             else:
-                # Create new vector store if none exists
                 logger.info("Creating new vector store")
-                sample_embedding = embeddings.embed_query("test")
+                sample_embedding = await loop.run_in_executor(
+                    shared_executor,
+                    lambda: embeddings.embed_query("test")
+                )
                 index = faiss.IndexFlatL2(len(sample_embedding))
                 self._vector_store = FAISS(
                     embedding_function=embeddings,
@@ -124,9 +136,11 @@ class StateManager:
                     docstore=InMemoryDocstore(),
                     index_to_docstore_id={}
                 )
-                # Ensure directory exists before saving
                 VECTOR_STORE_PATH.mkdir(parents=True, exist_ok=True)
-                self._vector_store.save_local(folder_path=str(VECTOR_STORE_PATH))
+                await loop.run_in_executor(
+                    shared_executor,
+                    lambda: self._vector_store.save_local(folder_path=str(VECTOR_STORE_PATH))
+                )
                 logger.info("Created and saved new vector store")
 
         except Exception as e:
@@ -158,11 +172,23 @@ class StateManager:
             self._chat_history[session_id] = []
         self._chat_history[session_id].append(message)
 
+async def tokenize_text(text: str) -> List[str]:
+    """
+    Converts the text into a list of tokens. Replace or update
+    this function as needed to ensure accuracy and performance.
+    """
+    tokenizer = tiktoken.encoding_for_model("gpt-4o")
+    text = tokenizer.decode(tokenizer.encode(text)[:2048])
+    return text  
+
 async def embed_data(message: str, ai_response: str, user_id: str) -> Dict[str, Any]:
     """Embed data into vector store with error handling."""
     try:
         validate_inputs(message, user_id)
         logger.info(f"Embedding data for User: {user_id}")
+
+        tokenized_message = await tokenize_text(message)
+        logger.info(f"Tokenized message: {tokenized_message}")
 
         vector_store = await asyncio.wait_for(
             state_manager.get_vector_store(), timeout=30
