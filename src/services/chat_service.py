@@ -51,7 +51,7 @@ class ChatService:
 
             # 2. Retrieve all session history including the current message
             retrieved_content = await asyncio.wait_for(
-                retrieve_message(content, user_id), timeout=30
+                retrieve_message(content, user_id), timeout=60  # Increased from 30
             ) or []
             
              # ({
@@ -102,7 +102,7 @@ class ChatService:
                     },
                 }
                 await asyncio.wait_for(
-                    self.message_repo.create_message(full_user_message_data), timeout=30
+                    self.message_repo.create_message(full_user_message_data), timeout=60  # Increased from 30
                 )
                 
                 # Create the AI message before embedding
@@ -159,7 +159,7 @@ class ChatService:
                 del embed_response_result, full_message_data
 
         except asyncio.TimeoutError:
-            logger.error("Operation timed out after 30 seconds")
+            logger.error("Operation timed out after 60 seconds")  # Updated message
             yield "Error: Operation timed out."
         except Exception as e:
             logger.error(f"Error in create_message_stream: {str(e)}", exc_info=True)

@@ -174,7 +174,7 @@ async def process_chat_stream(
             temperature=0,
             max_tokens=256,  # Reduced from 512
             streaming=True,
-            timeout=30,  # Add timeout
+            timeout=60,  # Increased from 30
             max_retries=1,  # Reduced retries
             api_key=GEMENI_API_KEY,
             safety_settings={

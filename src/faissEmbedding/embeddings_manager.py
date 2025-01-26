@@ -80,7 +80,7 @@ async def create_embeddings():
                         encode_kwargs=encode_kwargs,
                     )
                 ),
-                timeout=30,
+                timeout=60,  # Increased from 30
             )
             gc.collect()
         return embeddings
@@ -212,7 +212,9 @@ class StateManager:
 async def embed_data(message: str, ai_response: str, user_id: str) -> Dict[str, Any]:
     """Memory-optimized embedding"""
     try:
-        vector_store = await state_manager.get_vector_store()
+        vector_store = await asyncio.wait_for(
+            state_manager.get_vector_store(), timeout=60  # Increased from 30
+        )
         validate_inputs(message, user_id)
         logger.info(f"Embedding data for User: {user_id}")
         timestamp = datetime.now().isoformat()
@@ -244,7 +246,7 @@ async def embed_data(message: str, ai_response: str, user_id: str) -> Dict[str, 
                         executor,
                         lambda: vector_store.save_local(folder_path=str(VECTOR_STORE_PATH))
                     ),
-                    timeout=30
+                    timeout=60  # Increased from 30
                 )
                 gc.collect()  # Force collection after each operation
                 
