@@ -6,6 +6,8 @@ from faissEmbedding.embeddings_manager import state_manager, initialize_services
 from db.supabase import Supabase
 from constants import SUPABASE_URL, SUPABASE_KEY
 import asyncio
+import os
+import gc
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +16,11 @@ class DatabaseLifespan:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         try:
+            # Force CPU mode before any ML initialization
+            os.environ['CUDA_VISIBLE_DEVICES'] = ''
+            os.environ['USE_TORCH'] = 'cpu'
+            os.environ['FORCE_CPU'] = '1'
+            
             # Initialize core services
             logger.info("Starting service initialization")
             
@@ -32,14 +39,15 @@ class DatabaseLifespan:
             # Initialize embeddings and vector store
             try:
                 await initialize_services()
-                logger.info("Embeddings and Vector Store initialized successfully.")
-            except Exception as e:
-                logger.error(f"Error initializing embeddings: {str(e)}")
+                logger.info("Embeddings and Vector Store initialized successfully on CPU")
             except MemoryError:
-                logger.warning("Insufficient memory for ML services - will initialize on demand")
+                logger.error("Memory error during initialization")
+                await state_manager.clear_cache()
+                raise
             except Exception as e:
                 logger.error(f"Error initializing ML services: {str(e)}")
-                # Continue anyway - services will initialize on demand
+                await state_manager.clear_cache()
+                raise
             
             yield
             
@@ -47,7 +55,9 @@ class DatabaseLifespan:
             logger.error(f"Error during initialization: {str(e)}")
             raise
         finally:
-            # Cleanup in reverse order
+            # Enhanced cleanup
             await state_manager.clear_cache()
             await MongoDBClient.close()
+            gc.collect()
+            gc.collect()
             logger.info("Cleanup completed")

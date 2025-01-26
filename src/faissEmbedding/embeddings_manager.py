@@ -19,6 +19,9 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
+# Add at top, before any other imports
+os.environ['USE_TORCH'] = 'cuda'  # Force CPU mode
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -51,17 +54,19 @@ async def managed_executor():
         executor.shutdown(wait=False)
 
 async def create_embeddings():
-    """Create embeddings with strict CPU usage and memory controls"""
-    # Force CPU usage
-    os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-    device = "cpu"  # Force CPU
+    """Create embeddings with forced CPU usage."""
+    torch.set_num_threads(4)  # Limit CPU threads
+    device = "cpu"  # Force CPU, no CUDA check
     model_kwargs = {
         'device': device,
         'token': HF_TOKEN,
+        'use_cuda': False,
+        'use_mps': False
     }
     encode_kwargs = {
         'normalize_embeddings': True,
-        'batch_size': BATCH_SIZE,
+        'batch_size': 16,  # Reduced batch size
+        'max_length': 128  # Limit sequence length
     }
 
     gc.collect()
@@ -81,7 +86,7 @@ async def create_embeddings():
             )
             gc.collect()
         return embeddings
-    except (asyncio.TimeoutError, RuntimeError) as e:
+    except Exception as e:
         logger.error(f"Embedding creation failed: {str(e)}")
         raise
 
@@ -164,28 +169,37 @@ class StateManager:
     async def clear_cache(self):
         """Enhanced memory cleanup"""
         async with self._lock:
-            if hasattr(self, '_embeddings') and self._embeddings is not None:
-                del self._embeddings
-                self._embeddings = None
-
-            if hasattr(self, '_vector_store') and self._vector_store is not None:
-                if hasattr(self._vector_store, 'index'):
-                    del self._vector_store.index
-                del self._vector_store
-                self._vector_store = None
-
-            self._chat_history.clear()
-            gc.collect()
-            
             try:
-                import torch
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                    torch.cuda.synchronize()
-            except:
-                pass
+                # Clear embeddings
+                if hasattr(self, '_embeddings'):
+                    if hasattr(self._embeddings, 'client'):
+                        del self._embeddings.client
+                    del self._embeddings
+                    self._embeddings = None
 
-            logger.info("Memory cache cleared")
+                # Clear vector store
+                if hasattr(self, '_vector_store'):
+                    if hasattr(self._vector_store, 'index'):
+                        self._vector_store.index.reset()
+                        del self._vector_store.index
+                    del self._vector_store
+                    self._vector_store = None
+
+                # Clear history
+                if hasattr(self, '_chat_history'):
+                    self._chat_history.clear()
+
+                # Force garbage collection
+                gc.collect()
+                gc.collect()  # Double collection to ensure references are cleared
+                
+                import sys
+                sys.modules.pop('torch', None)  # Remove torch from sys.modules
+                
+                logger.info("Memory cache cleared completely")
+            except Exception as e:
+                logger.error(f"Error during cache clearing: {str(e)}")
+                raise
 
     def get_chat_history(self, session_id: str) -> List[dict]:
         return self._chat_history.get(session_id, [])
