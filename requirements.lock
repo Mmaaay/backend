@@ -188,7 +188,7 @@ markupsafe==2.1.5
     # via jinja2
 marshmallow==3.23.1
     # via dataclasses-json
-motor>=3.6
+motor==3.6.1
     # via
     #   -r requirements.txt
     #   langgraph-checkpoint-mongodb
@@ -335,7 +335,9 @@ pyyaml==6.0.2
 realtime==2.0.6
     # via supabase
 regex==2024.11.6
-    # via transformers
+    # via
+    #   tiktoken
+    #   transformers
 requests==2.32.3
     # via
     #   google-api-core
@@ -344,6 +346,7 @@ requests==2.32.3
     #   langchain-community
     #   langsmith
     #   requests-toolbelt
+    #   tiktoken
     #   transformers
 requests-toolbelt==1.0.0
     # via langsmith
@@ -398,6 +401,8 @@ tenacity==9.0.0
     #   langchain-core
 threadpoolctl==3.5.0
     # via scikit-learn
+tiktoken==0.8.0
+    # via -r requirements.txt
 tokenizers==0.20.3
     # via
     #   langchain-huggingface
