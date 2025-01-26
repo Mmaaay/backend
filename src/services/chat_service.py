@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from datetime import datetime
 from typing import List, Optional, AsyncGenerator
 from models.dto import ChatSessionBase, MessageContent, MessageRole , MessageDetails, MessageUserInterface
@@ -49,7 +50,9 @@ class ChatService:
                 metadata = {}
 
             # 2. Retrieve all session history including the current message
-            retrieved_content = await retrieve_message(content, session_id) or []
+            retrieved_content = await asyncio.wait_for(
+                retrieve_message(content, user_id), timeout=30
+            ) or []
             
              # ({
             #     "user_question": current_questions,
@@ -72,17 +75,17 @@ class ChatService:
             
             # # # # 3. Initiate AI response streaming
             async for chunk in process_chat_stream(
-                current_question,
-                history_questions,
-                history_ai_responses,
+                messages=current_question,
+                history_questions=history_questions,
+                history_ai_responses=history_ai_responses,
                 session_id=session_id
             ):
                 logger.debug(f"Streaming chunk: {chunk}")
                 ai_response_chunks.append(chunk)
                 yield chunk
-
             # # # # 4. Combine chunks and embed the complete response
             ai_content = "".join(ai_response_chunks).strip()
+            print(ai_content)
             if ai_content:
                 full_message_data = {
                     "session_id": session_id,
@@ -98,10 +101,14 @@ class ChatService:
                         "timestamp": datetime.now().isoformat()
                     },
                 }
-                await self.message_repo.create_message(full_message_data)
+                await asyncio.wait_for(
+                    self.message_repo.create_message(full_message_data), timeout=30
+                )
                 
-                embed_response_result = await embed_system_response(current_question, ai_content ,session_id, )
-                if embed_response_result.get("status") != "success":
+                embed_response_result = await embed_system_response(current_question, ai_content, user_id)
+                if embed_response_result is None:
+                    logger.error("embed_system_response returned None")
+                elif embed_response_result.get("status") != "success":
                     logger.error(f"Failed to embed AI response: {embed_response_result.get('message')}")
                     
             else:
@@ -120,11 +127,16 @@ class ChatService:
                     },
                 }
                 await self.message_repo.create_message(full_message_data)
-                embed_response_result = await embed_system_response(current_question, "Failed to generate response", session_id)
-                if embed_response_result.get("status") != "success":
+                embed_response_result = await embed_system_response(current_question, "Failed to generate response", user_id)
+                if embed_response_result is None:
+                    logger.error("embed_system_response returned None")
+                elif embed_response_result.get("status") != "success":
                     logger.error(f"Failed to embed AI response: {embed_response_result.get('message')}")
                     
 
+        except asyncio.TimeoutError:
+            logger.error("Operation timed out after 30 seconds")
+            yield "Error: Operation timed out."
         except Exception as e:
             logger.error(f"Error in create_message_stream: {str(e)}", exc_info=True)
             yield f"Error: {str(e)}"
@@ -141,7 +153,7 @@ class ChatService:
         session_id: str
     ) -> List[Messages.Messages]:
         return await self.message_repo.get_message_details(session_id)
-    
+
 
 
 

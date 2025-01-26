@@ -186,6 +186,7 @@ class MessageAnalytics(BaseModel):
     assistant_message_count: int
     average_response_time: Optional[float]
     session_duration: Optional[float]
+    WER : Optional[float] = Field(None, description="Word Error Rate")
     created_at: datetime = Field(default_factory=datetime.now)
     
     

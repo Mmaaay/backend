@@ -1,11 +1,9 @@
 import gc
 import logging
 import os
+from pathlib import Path
 import warnings
 from datetime import datetime
-from logging import config
-from pathlib import Path
-from threading import Lock
 from typing import Any, Dict, List, Optional
 from langchain_community.docstore.in_memory import InMemoryDocstore
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -15,7 +13,6 @@ from transformers import AutoModel, AutoTokenizer
 import torch
 import faiss
 from dotenv import load_dotenv
-load_dotenv()
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
@@ -25,6 +22,8 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+load_dotenv()
 HF_TOKEN = os.getenv("HF_TOKEN")
 # Constants
 VECTOR_STORE_DIR = "tafasir_quran_faiss_vectorstore"
@@ -37,11 +36,10 @@ warnings.filterwarnings("ignore")
 # Thread pool executor for blocking operations
 executor = ThreadPoolExecutor(max_workers=2)
 
-
 async def create_embeddings():
     """Create embeddings with optimized memory settings."""
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model_kwargs = {'device': device , 'token':HF_TOKEN}
+    model_kwargs = {'device': device, 'token': HF_TOKEN}
     encode_kwargs = {'normalize_embeddings': True}
 
     # Clear memory before loading
@@ -51,21 +49,22 @@ async def create_embeddings():
 
     logger.info(f"Creating embeddings on device: {device}")
 
-    # Load embeddings in executor to avoid blocking event loop
-    embeddings = await asyncio.get_event_loop().run_in_executor(
-        executor,
-        lambda: HuggingFaceEmbeddings(
-            model_name=MODEL_PATH,
-            model_kwargs=model_kwargs,
-            encode_kwargs=encode_kwargs
+    try:
+        embeddings = await asyncio.wait_for(
+            asyncio.get_event_loop().run_in_executor(
+                executor,
+                lambda: HuggingFaceEmbeddings(
+                    model_name=MODEL_PATH,
+                    model_kwargs=model_kwargs,
+                    encode_kwargs=encode_kwargs
+                )
+            ),
+            timeout=30
         )
-    )
-
-    # Model initialization is handled automatically by HuggingFaceEmbeddings
-    # Remove the manual model initialization as it's not needed
-
-    return embeddings
-
+        return embeddings
+    except asyncio.TimeoutError:
+        logger.error("Embedding creation timed out after 30 seconds")
+        raise
 
 class StateManager:
     """Memory-efficient state manager for embeddings and vector store."""
@@ -104,7 +103,7 @@ class StateManager:
         logger.info("Initializing vector store")
         try:
             embeddings = await self.get_embeddings()
-            
+
             # Try to load existing vector store first
             if (VECTOR_STORE_PATH / "index.faiss").exists():
                 logger.info("Loading existing vector store")
@@ -159,48 +158,57 @@ class StateManager:
             self._chat_history[session_id] = []
         self._chat_history[session_id].append(message)
 
-
-async def embed_data(message: str,  ai_response:str, session_id: str) -> Dict[str, Any]:
+async def embed_data(message: str, ai_response: str, user_id: str) -> Dict[str, Any]:
     """Embed data into vector store with error handling."""
     try:
-        validate_inputs(message, session_id)
-        logger.info(f"Embedding data for session: {session_id}")
-        
-        vector_store = await state_manager.get_vector_store()
+        validate_inputs(message, user_id)
+        logger.info(f"Embedding data for User: {user_id}")
+
+        vector_store = await asyncio.wait_for(
+            state_manager.get_vector_store(), timeout=30
+        )
         timestamp = str(datetime.now())
-        
+
         # Create new document
         new_document = Document(
             page_content=message,
             metadata={
                 "source": "user",
-                "session_id": session_id,
+                "user_id": user_id,
                 "type": "conversation",
                 "message": message,
                 "timestamp": timestamp,
                 "is_question": True,
-                "Assistant" : {
+                "Assistant": {
                     "response": ai_response,
                     "timestamp": timestamp
                 }
-               
             }
         )
 
         # Generate unique ID
-        doc_id = f"document_{session_id}_{timestamp}"
-        
+        doc_id = f"document_{user_id}_{timestamp}"
+
         try:
             # Add document and save
             vector_store.add_documents([new_document], ids=[doc_id])
-            vector_store.save_local(folder_path=str(VECTOR_STORE_PATH))
+            await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(
+                    executor,
+                    lambda: vector_store.save_local(folder_path=str(VECTOR_STORE_PATH))
+                ),
+                timeout=30
+            )
             logger.info(f"Added and saved document {doc_id}")
             logger.debug(f"Total documents in store: {len(vector_store.docstore._dict)}")
-            
+
             return {
                 "status": "success",
                 "document_name": doc_id
             }
+        except asyncio.TimeoutError:
+            logger.error("Embedding data operation timed out after 30 seconds")
+            return {"status": "error", "message": "Operation timed out."}
         except Exception as e:
             logger.error(f"Error adding document: {str(e)}")
             return {"status": "error", "message": str(e)}
@@ -209,17 +217,22 @@ async def embed_data(message: str,  ai_response:str, session_id: str) -> Dict[st
         logger.error(f"Error in embed_data: {str(e)}")
         return {"status": "error", "message": str(e)}
 
-
-async def retrieve_embedded_data(message: Optional[str], session_id: str) -> Optional[List[dict]]:
+async def retrieve_embedded_data(message: Optional[str], user_id: str) -> Optional[List[dict]]:
     """Retrieve embedded data and manage chat history."""
     try:
-        validate_inputs(message, session_id)
-        logger.info(f"Retrieving data for session: {session_id}")
+        validate_inputs(message, user_id)
+        logger.info(f"Retrieving data for User: {user_id}")
 
-        vector_store = await state_manager.get_vector_store()
-        
-        retrieved_context = vector_store.similarity_search(message, k=5 ,
-                                                           filters={"metadata.session_id": session_id})
+        vector_store = await asyncio.wait_for(
+            state_manager.get_vector_store(), timeout=30
+        )
+        retrieved_context = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(
+                    executor,
+                    lambda: vector_store.similarity_search(message, k=2, filters={"user_id": user_id})
+                ),
+                timeout=30
+            )
         docs_as_dicts = []
         for doc in retrieved_context:
             try:
@@ -253,26 +266,27 @@ async def retrieve_embedded_data(message: Optional[str], session_id: str) -> Opt
             "ai_response": ai_responses,
             "type": "history"
         })
-        
-        logger.info(f"Retrieved {len(formatted_docs)} documents for session {session_id}")
+
+        logger.info(f"Retrieved {len(formatted_docs)} documents for User {user_id}")
         return formatted_docs
 
+    except asyncio.TimeoutError:
+        logger.error("Retrieve embedded data operation timed out after 30 seconds")
+        return None
     except Exception as e:
         logger.error(f"Error in retrieve_embedded_data: {str(e)}")
         return None
 
-
-def validate_inputs(message: Optional[str], session_id: str) -> None:
+def validate_inputs(message: Optional[str], user_id: str) -> None:
     """Validate input parameters."""
-    if not session_id or not isinstance(session_id, str):
-        raise ValueError("Session ID must be a non-empty string")
+    if not user_id or not isinstance(user_id, str):
+        raise ValueError("User ID must be a non-empty string")
     if message is not None and not isinstance(message, str):
         raise ValueError("Message must be a string")
 
-
 # Create singleton instance
 state_manager = StateManager()
-logger.info("Initializing embeddings")
+logger.info("Embedding manager initialized")
 
 # Initialize the embeddings and vector store asynchronously
 async def initialize_services():
@@ -285,12 +299,3 @@ async def initialize_services():
     except Exception as e:
         logger.error(f"Failed to initialize application: {str(e)}")
         raise
-# It's assumed that initialize_services is called during the application's startup
-        await state_manager.get_embeddings()
-        logger.info("Initializing vector store")
-        await state_manager.get_vector_store()
-        logger.info("Successfully initialized application")
-    except Exception as e:
-        logger.error(f"Failed to initialize application: {str(e)}")
-        raise
-# It's assumed that initialize_services is called during the application's startup

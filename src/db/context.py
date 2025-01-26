@@ -1,12 +1,12 @@
 from typing import Generator, Any
-from pymongo import MongoClient
+from pymongo import AsyncMongoClient
 from constants import DB_CONNECTION_STRING
 
 
 if not DB_CONNECTION_STRING:
     raise Exception("DB connection string not provided")
 
-client = MongoClient(DB_CONNECTION_STRING)
+client = AsyncMongoClient(DB_CONNECTION_STRING)
 db_name ="Quran"
 db = client[db_name]
 users_collection = db['users']  # Assuming 'users' is the collection name

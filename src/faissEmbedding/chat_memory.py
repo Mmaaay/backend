@@ -6,7 +6,8 @@ from typing import AsyncGenerator, Dict, List, Tuple
 from datetime import datetime
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
+from langgraph.checkpoint.mongodb.aio import AsyncMongoDBSaver
+from db.context import client
 from faissEmbedding.embeddings_manager import (embed_data,
                                                retrieve_embedded_data,
                                                state_manager)
@@ -27,9 +28,7 @@ system_template = """
 You are an Arabic Quranic assistant specializing in Tafsir. Your role is to provide accurate, respectful, and concise answers to questions about the Quran, using relevant Tafsir and Quranic Ayat for context.
 
 ### Context  
-- **Current Question:** {current_question}  
-- **Previous Questions:** {previous_questions}  
-- **Previous Answers:** {previous_answers}  
+- **Context:** {messages}   
 
 ### Instructions  
 1. **Understand the Query:**  
@@ -60,9 +59,8 @@ End your response with an invitation to ask follow-up questions if needed.
 # Update prompt template to use simple string formatting
 prompt = ChatPromptTemplate.from_messages([
     ("system", system_template),
-    MessagesPlaceholder("current_question"),
-    MessagesPlaceholder("previous_questions"),
-    MessagesPlaceholder("previous_answers"),
+    MessagesPlaceholder("messages"),
+
 ])
     
 
@@ -74,13 +72,13 @@ formatter = logging.Formatter('%(asctime)s - %name%s - %levelname%s - %message%s
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-async def embed_message(message: str, session_id: str , ):
+async def embed_message(message: str, user_id: str):
     """Embeds a message using the embedding manager"""
-    return await embed_data(message, session_id)
+    return await embed_data(message, user_id)
 
-async def retrieve_message(message: str, session_id: str):
+async def retrieve_message(message: str, user_id: str):
     """Retrieves embedded data for a message"""
-    return await retrieve_embedded_data(message, session_id)
+    return await retrieve_embedded_data(message, user_id)
 
 def convert_messages_to_string(messages):
     """Convert message objects to string format"""
@@ -185,32 +183,51 @@ async def process_chat_stream(
             }
         )
 
-        chain = prompt | model | StrOutputParser()
+        chain = prompt | model
+        mongodb_client = client
+        checkpointer = AsyncMongoDBSaver(mongodb_client)  
+        
+        config = {
+        "configurable": {
+            "thread_id": session_id,
+        }}
+        
+        input_message = {
+            "role": "user",
+            "content": f"Current Question: {messages} \n Previous Questions: {history_questions} \n Previous Answers: {history_ai_responses}" 
+        }
+        async def call_model(state: MessagesState):
+            chain = prompt | model
+            response = await chain.ainvoke({"messages": state["messages"]})
+            return {"messages": response}
+        
+        builder = StateGraph(MessagesState)
+        builder.add_node("call_model", call_model)
+        builder.add_edge(START, "call_model")
+        builder.add_edge("call_model", END)
+        graph = builder.compile(checkpointer=checkpointer)
+
         
         # Buffer for accumulating partial words/sentences
         text_buffer = ""
         CHUNK_SIZE = 2  # Reduced chunk size for smoother streaming
         
         logger.info("Starting stream for session: %s", session_id)
-        async for chunk in chain.astream({
-            "current_question": current_question,
-            "previous_questions": history_questions,
-            "previous_answers": history_ai_responses
-        }):
-            text_buffer += chunk
-
-            # Process buffer if conditions are met
-            if len(text_buffer) >= CHUNK_SIZE * initial_scale_factor or any(x in text_buffer for x in ['.', '!', '?', '\n']):
+        async for chunk in graph.astream(
+            {"messages": [input_message]}, config=config, stream_mode='messages'
+        ):  
+            if not isinstance(chunk, tuple):
+                logger.error("Unexpected chunk type: %s", type(chunk))
+                continue  # Skip processing this chunk
+                
+            message_chunk, metadata = chunk
+            text_buffer += message_chunk.content  # Extract content from AIMessageChunk
+            if len(text_buffer) >= CHUNK_SIZE or any(x in text_buffer for x in ['.', '!', '?', '\n']):
                 chunks = chunk_text(text_buffer, CHUNK_SIZE)
-                
-                # Yield complete chunks
                 for complete_chunk in chunks[:-1]:
-                    await asyncio.sleep(min(0.005, len(complete_chunk) * 0.0001))
+                    await asyncio.sleep(0.01)
                     yield complete_chunk + " "
-                
-                # Keep remaining text in buffer
                 text_buffer = chunks[-1] if chunks else ""
-                initial_scale_factor = 1  # Reset after initial burst
 
         # Yield remaining text in the buffer
         if text_buffer:
@@ -224,5 +241,7 @@ async def process_chat_stream(
 
 async def embed_system_response(current_question: str, ai_response: str, session_id: str):
     """Embeds the system's response with metadata"""
-  
-    return await embed_data(current_question, ai_response, session_id)
+    result = await embed_data(current_question, ai_response, session_id)
+    logger.info(f"embed_system_response returned: {result}")
+    return result
+
