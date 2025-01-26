@@ -182,14 +182,7 @@ class StateManager:
             self._chat_history[session_id] = []
         self._chat_history[session_id].append(message)
 
-async def tokenize_text(text: str) -> List[str]:
-    """
-    Converts the text into a list of tokens. Replace or update
-    this function as needed to ensure accuracy and performance.
-    """
-    tokenizer = tiktoken.encoding_for_model("gpt-4o")
-    text = tokenizer.decode(tokenizer.encode(text)[:2048])
-    return text  
+  
 
 async def embed_data(message: str, ai_response: str, user_id: str) -> Dict[str, Any]:
     """Embed data into vector store with error handling."""
@@ -197,8 +190,7 @@ async def embed_data(message: str, ai_response: str, user_id: str) -> Dict[str, 
         validate_inputs(message, user_id)
         logger.info(f"Embedding data for User: {user_id}")
 
-        tokenized_message = await tokenize_text(message)
-        logger.info(f"Tokenized message: {tokenized_message}")
+        
 
         vector_store = await asyncio.wait_for(
             state_manager.get_vector_store(), timeout=30
