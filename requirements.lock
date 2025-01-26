@@ -304,7 +304,7 @@ pydantic-core==2.20.1
     # via pydantic
 pydantic-settings==2.4.0
     # via langchain-community
-pymongo<4.9
+pymongo=4.9
     # via
     #   -r requirements.txt
     #   langgraph-checkpoint-mongodb
