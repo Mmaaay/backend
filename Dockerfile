@@ -26,7 +26,7 @@ COPY requirements.txt .
 COPY requirements.lock .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.lock
+RUN uv pip install --no-cache-dir -r requirements.lock
 
 # Stage 2: Runtime image
 FROM nvcr.io/nvidia/cuda:12.5.1-runtime-ubuntu22.04 AS runtime
