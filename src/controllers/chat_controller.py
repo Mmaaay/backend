@@ -54,8 +54,10 @@ async def send_message(
         raise HTTPException(status_code=403, detail="Not authorized to access this session")
 
     logger.info(f"Received message for session_id: {message.session_id} from user_id: {current_user.id}")
-    
+        
    # Create message stream
+   #session id 0b8e8c6e-3a20-4056-b714-28dec35aeca2   d298b754-8b36-4b78-a484-ead9bf7a9181
+   
     async def event_generator():
         try:
             async for chunk in chat_service.create_message_stream(
@@ -76,7 +78,6 @@ async def send_message(
 #get all chats for a specific session id
 @router.get("/get_user_sessions", response_model=List[MessageUserInterface]) 
 async def get_chat(
-    request: GetUserSessionsRequest,
     chat_service: ChatService = Depends(get_chat_service),
     current_user = Depends(get_current_user)
 ) -> List[MessageUserInterface]:

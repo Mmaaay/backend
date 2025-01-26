@@ -209,7 +209,6 @@ class MessageDetails(BaseModel):
 
 
 class GetUserSessionsRequest(BaseModel):
-    user_id: str   
+    pass
 class GetUserMessagesRequest(BaseModel):
-    user_id: str   
     session_id: str
