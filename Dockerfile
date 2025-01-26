@@ -156,9 +156,9 @@ RUN /opt/venv/bin/uv pip install --upgrade pip && /opt/venv/bin/uv pip install -
 # Copy application files
 COPY src ./src
 
-COPY tafasir_quran_faiss_vectorstore /tmp/tafasir_quran_faiss_vectorstore
-RUN chmod -R 775 /tmp/tafasir_quran_faiss_vectorstore && \
-    chown -R appuser:appuser /tmp/tafasir_quran_faiss_vectorstore
+COPY tafasir_quran_faiss_vectorstore /app/build/tafasir_quran_faiss_vectorstore
+RUN chmod -R 775 /app/build/tafasir_quran_faiss_vectorstore && \
+    chown -R appuser:appuser /app/build/tafasir_quran_faiss_vectorstore
 
 # Switch to non-root user
 USER appuser
