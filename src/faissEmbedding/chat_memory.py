@@ -127,11 +127,11 @@ def format_messages(message_input) -> list[BaseMessage]:
     else:
         raise ValueError("Messages must be a string, dictionary, or list of messages")
 
-async def process_chat(messages, history_questions: List[str], history_ai_responses:List[str] ,session_id: str = None):
+async def process_chat(messages, history_questions: List[str], history_ai_responses:List[str], session_id: str = None):
     """Process chat messages and return AI response"""
-    # Instead of processing directly, use the streaming version
+    # 3. Minimize concurrency by removing extra executor calls
     response_chunks = []
-    async for chunk in process_chat_stream(messages, history_questions,history_ai_responses, session_id):
+    async for chunk in process_chat_stream(messages, history_questions, history_ai_responses, session_id):
         response_chunks.append(chunk)
     return "".join(response_chunks)
 
