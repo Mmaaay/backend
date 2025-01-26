@@ -171,7 +171,7 @@ async def process_chat_stream(
         model = ChatGoogleGenerativeAI(
             model="gemini-1.5-pro",
             temperature=0,
-            max_tokens=2056,
+            max_tokens=1024,
             streaming=True,
             timeout=None,
             max_retries=2,
@@ -219,7 +219,6 @@ async def process_chat_stream(
             if not isinstance(chunk, tuple):
                 logger.error("Unexpected chunk type: %s", type(chunk))
                 continue  # Skip processing this chunk
-                
             message_chunk, metadata = chunk
             text_buffer += message_chunk.content  # Extract content from AIMessageChunk
             if len(text_buffer) >= CHUNK_SIZE or any(x in text_buffer for x in ['.', '!', '?', '\n']):

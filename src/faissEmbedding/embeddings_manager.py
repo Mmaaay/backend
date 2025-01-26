@@ -36,10 +36,12 @@ MODEL_PATH = "models/embeddings"
 warnings.filterwarnings("ignore")
 
 # Thread pool executor for blocking operations
-executor = ThreadPoolExecutor(max_workers=2)
+executor = ThreadPoolExecutor(max_workers=1)
+shared_executor = executor
 
 async def create_embeddings():
     """Create embeddings with optimized memory settings."""
+    # Force CPU to reduce memory usage
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model_kwargs = {'device': device, 'token': HF_TOKEN}
     encode_kwargs = {'normalize_embeddings': True}
@@ -70,7 +72,6 @@ async def create_embeddings():
         logger.error("Embedding creation timed out after 30 seconds")
         raise
 
-shared_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 class StateManager:
     """Memory-efficient state manager for embeddings and vector store."""
     def __init__(self):
