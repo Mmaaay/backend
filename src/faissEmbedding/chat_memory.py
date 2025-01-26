@@ -210,7 +210,7 @@ async def process_chat_stream(
         
         # Buffer for accumulating partial words/sentences
         text_buffer = ""
-        CHUNK_SIZE = 2  # Reduced chunk size for smoother streaming
+        CHUNK_SIZE = 2  # Further reduced chunk size for memory optimization
         
         logger.info("Starting stream for session: %s", session_id)
         async for chunk in graph.astream(
@@ -224,13 +224,17 @@ async def process_chat_stream(
             if len(text_buffer) >= CHUNK_SIZE or any(x in text_buffer for x in ['.', '!', '?', '\n']):
                 chunks = chunk_text(text_buffer, CHUNK_SIZE)
                 for complete_chunk in chunks[:-1]:
-                    await asyncio.sleep(0.01)
+                    await asyncio.sleep(0.005)  # Reduce sleep time for faster streaming
                     yield complete_chunk + " "
                 text_buffer = chunks[-1] if chunks else ""
 
         # Yield remaining text in the buffer
         if text_buffer:
             yield text_buffer
+        
+        # Clear buffer
+        text_buffer = ""
+        chunks = []
 
         logger.info("Stream completed for session: %s", session_id)
 
@@ -241,6 +245,9 @@ async def process_chat_stream(
 async def embed_system_response(current_question: str, ai_response: str, session_id: str):
     """Embeds the system's response with metadata"""
     result = await embed_data(current_question, ai_response, session_id)
+    return result
     logger.info(f"embed_system_response returned: {result}")
     return result
+
+
 

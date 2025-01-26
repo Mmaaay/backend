@@ -17,12 +17,14 @@ import faiss
 from dotenv import load_dotenv
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+logger = logging.getLogger(__name__)
 logger = logging.getLogger(__name__)
 
 load_dotenv()
@@ -39,6 +41,14 @@ warnings.filterwarnings("ignore")
 executor = ThreadPoolExecutor(max_workers=1)
 shared_executor = executor
 
+@asynccontextmanager
+async def managed_executor():
+    executor = ThreadPoolExecutor(max_workers=1)
+    try:
+        yield executor
+    finally:
+        executor.shutdown(wait=False)
+
 async def create_embeddings():
     """Create embeddings with optimized memory settings."""
     # Force CPU to reduce memory usage
@@ -54,19 +64,18 @@ async def create_embeddings():
     logger.info(f"Creating embeddings on device: {device}")
 
     try:
-        embeddings = await asyncio.wait_for(
-            asyncio.get_event_loop().run_in_executor(
-                executor,
-                lambda: HuggingFaceEmbeddings(
-                    model_name=MODEL_PATH,
-                    model_kwargs=model_kwargs,
-                    encode_kwargs=encode_kwargs
-                )
-            ),
-            timeout=30,
-        )
-            
-           
+        async with managed_executor() as executor:
+            embeddings = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(
+                    executor,
+                    lambda: HuggingFaceEmbeddings(
+                        model_name=MODEL_PATH,
+                        model_kwargs=model_kwargs,
+                        encode_kwargs=encode_kwargs
+                    )
+                ),
+                timeout=30,
+            )
         return embeddings
     except asyncio.TimeoutError:
         logger.error("Embedding creation timed out after 30 seconds")
@@ -217,15 +226,19 @@ async def embed_data(message: str, ai_response: str, user_id: str) -> Dict[str, 
         doc_id = f"document_{user_id}_{timestamp}"
 
         try:
-            # Add document and save
-            vector_store.add_documents([new_document], ids=[doc_id])
-            await asyncio.wait_for(
-                asyncio.get_event_loop().run_in_executor(
-                    executor,
-                    lambda: vector_store.save_local(folder_path=str(VECTOR_STORE_PATH))
-                ),
-                timeout=30
-            )
+            async with managed_executor() as executor:
+                # Add document and save
+                vector_store.add_documents([new_document], ids=[doc_id])
+                await asyncio.wait_for(
+                    asyncio.get_event_loop().run_in_executor(
+                        executor,
+                        lambda: vector_store.save_local(folder_path=str(VECTOR_STORE_PATH))
+                    ),
+                    timeout=30
+                )
+            # Release references
+            del executor
+
             logger.info(f"Added and saved document {doc_id}")
             logger.debug(f"Total documents in store: {len(vector_store.docstore._dict)}")
 
@@ -314,6 +327,7 @@ def validate_inputs(message: Optional[str], user_id: str) -> None:
 # Create singleton instance
 state_manager = StateManager()
 logger.info("Embedding manager initialized")
+    
 
 # Initialize the embeddings and vector store asynchronously
 async def initialize_services():
@@ -326,3 +340,22 @@ async def initialize_services():
     except Exception as e:
         logger.error(f"Failed to initialize application: {str(e)}")
         raise
+async def embed_system_response(current_question: str, ai_response: str, session_id: str):
+    """Embeds the system's response with metadata"""
+    result = await embed_data(current_question, ai_response, session_id)
+    logger.info(f"embed_system_response returned: {result}")
+    
+    # Clear cache after embedding
+    await state_manager.clear_cache()
+
+    return result
+     
+
+# Ensure executor is properly shutdown on application exit
+import atexit
+
+@atexit.register
+def shutdown_executor():
+    executor.shutdown(wait=False)
+    logger.info("Executor shutdown successfully")
+     
