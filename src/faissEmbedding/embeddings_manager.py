@@ -20,7 +20,6 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
 # Add at top, before any other imports
-os.environ['USE_TORCH'] = 'cuda'  # Force CPU mode
 
 # Configure logging
 logging.basicConfig(
@@ -60,8 +59,7 @@ async def create_embeddings():
     model_kwargs = {
         'device': device,
         'token': HF_TOKEN,
-        'use_cuda': False,
-        'use_mps': False
+ 
     }
     encode_kwargs = {
         'normalize_embeddings': True,
@@ -214,32 +212,25 @@ class StateManager:
 async def embed_data(message: str, ai_response: str, user_id: str) -> Dict[str, Any]:
     """Memory-optimized embedding"""
     try:
+        vector_store = await state_manager.get_vector_store()
         validate_inputs(message, user_id)
         logger.info(f"Embedding data for User: {user_id}")
-
-            
-
-        vector_store = await asyncio.wait_for(
-            state_manager.get_vector_store(), timeout=30
-        )
-        timestamp = str(datetime.now())
-
-        # Create new document
+        timestamp = datetime.now().isoformat()
         new_document = Document(
-            page_content=message,
-            metadata={
-                "source": "user",
-                "user_id": user_id,
-                "type": "conversation",
-                "message": message,
-                "timestamp": timestamp,
-                "is_question": True,
-                "Assistant": {
-                    "response": ai_response,
-                    "timestamp": timestamp
-                }
+        page_content=message,
+        metadata={
+            "source": "user",
+            "user_id": user_id,
+            "type": "conversation",
+            "message": message,
+            "timestamp": timestamp,
+            "is_question": True,
+            "Assistant": {
+                "response": ai_response,
+                "timestamp": timestamp
             }
-        )
+        }
+    )
 
         # Generate unique ID
         doc_id = f"document_{user_id}_{timestamp}"
