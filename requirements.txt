@@ -18,6 +18,7 @@ starlette
 torch
 transformers
 torch 
+langgraph-checkpoint-mongodb
 faiss-gpu-cu12==1.9.0.0 
 uvicorn
 pydantic[email]
