@@ -81,6 +81,10 @@ async def create_embeddings():
         logger.error("Embedding creation timed out after 30 seconds")
         raise
 
+# Global semaphore to limit concurrent tasks
+CONCURRENCY_LIMIT = 2
+task_semaphore = asyncio.Semaphore(CONCURRENCY_LIMIT)
+
 class StateManager:
     """Memory-efficient state manager for embeddings and vector store."""
     def __init__(self):
@@ -186,129 +190,131 @@ class StateManager:
 
 async def embed_data(message: str, ai_response: str, user_id: str) -> Dict[str, Any]:
     """Embed data into vector store with error handling."""
-    try:
-        validate_inputs(message, user_id)
-        logger.info(f"Embedding data for User: {user_id}")
-
-        
-
-        vector_store = await asyncio.wait_for(
-            state_manager.get_vector_store(), timeout=30
-        )
-        timestamp = str(datetime.now())
-
-        # Create new document
-        new_document = Document(
-            page_content=message,
-            metadata={
-                "source": "user",
-                "user_id": user_id,
-                "type": "conversation",
-                "message": message,
-                "timestamp": timestamp,
-                "is_question": True,
-                "Assistant": {
-                    "response": ai_response,
-                    "timestamp": timestamp
-                }
-            }
-        )
-
-        # Generate unique ID
-        doc_id = f"document_{user_id}_{timestamp}"
-
+    async with task_semaphore:
         try:
-            async with managed_executor() as executor:
-                # Add document and save
-                vector_store.add_documents([new_document], ids=[doc_id])
-                await asyncio.wait_for(
-                    asyncio.get_event_loop().run_in_executor(
-                        executor,
-                        lambda: vector_store.save_local(folder_path=str(VECTOR_STORE_PATH))
-                    ),
-                    timeout=30
-                )
-            # Release references
-            del executor
+            validate_inputs(message, user_id)
+            logger.info(f"Embedding data for User: {user_id}")
 
-            logger.info(f"Added and saved document {doc_id}")
-            logger.debug(f"Total documents in store: {len(vector_store.docstore._dict)}")
+            
 
-            return {
-                "status": "success",
-                "document_name": doc_id
-            }
-        except asyncio.TimeoutError:
-            logger.error("Embedding data operation timed out after 30 seconds")
-            return {"status": "error", "message": "Operation timed out."}
+            vector_store = await asyncio.wait_for(
+                state_manager.get_vector_store(), timeout=30
+            )
+            timestamp = str(datetime.now())
+
+            # Create new document
+            new_document = Document(
+                page_content=message,
+                metadata={
+                    "source": "user",
+                    "user_id": user_id,
+                    "type": "conversation",
+                    "message": message,
+                    "timestamp": timestamp,
+                    "is_question": True,
+                    "Assistant": {
+                        "response": ai_response,
+                        "timestamp": timestamp
+                    }
+                }
+            )
+
+            # Generate unique ID
+            doc_id = f"document_{user_id}_{timestamp}"
+
+            try:
+                async with managed_executor() as executor:
+                    # Add document and save
+                    vector_store.add_documents([new_document], ids=[doc_id])
+                    await asyncio.wait_for(
+                        asyncio.get_event_loop().run_in_executor(
+                            executor,
+                            lambda: vector_store.save_local(folder_path=str(VECTOR_STORE_PATH))
+                        ),
+                        timeout=30
+                    )
+                # Release references
+                del executor
+
+                logger.info(f"Added and saved document {doc_id}")
+                logger.debug(f"Total documents in store: {len(vector_store.docstore._dict)}")
+
+                return {
+                    "status": "success",
+                    "document_name": doc_id
+                }
+            except asyncio.TimeoutError:
+                logger.error("Embedding data operation timed out after 30 seconds")
+                return {"status": "error", "message": "Operation timed out."}
+            except Exception as e:
+                logger.error(f"Error adding document: {str(e)}")
+                return {"status": "error", "message": str(e)}
+
         except Exception as e:
-            logger.error(f"Error adding document: {str(e)}")
+            logger.error(f"Error in embed_data: {str(e)}")
             return {"status": "error", "message": str(e)}
-
-    except Exception as e:
-        logger.error(f"Error in embed_data: {str(e)}")
-        return {"status": "error", "message": str(e)}
 
 async def retrieve_embedded_data(message: Optional[str], user_id: str) -> Optional[List[dict]]:
     """Retrieve embedded data and manage chat history."""
-    try:
-        validate_inputs(message, user_id)
-        logger.info(f"Retrieving data for User: {user_id}")
+    async with task_semaphore:
+        try:
+            validate_inputs(message, user_id)
+            logger.info(f"Retrieving data for User: {user_id}")
 
-        vector_store = await asyncio.wait_for(
-            state_manager.get_vector_store(), timeout=30
-        )
-        retrieved_context = await asyncio.wait_for(
-                asyncio.get_event_loop().run_in_executor(
-                    executor,
-                    lambda: vector_store.similarity_search_with_score(message, k=1, filters={"user_id": user_id})
-                ),
-                timeout=30
+            vector_store = await asyncio.wait_for(
+                state_manager.get_vector_store(), timeout=30
             )
-        docs_as_dicts = []
-        for doc, score in retrieved_context:
-            if score > 0.8:  # Only include results with a score > 0.8
-                try:
-                    doc_dict = {
-                        'content': doc.page_content,
-                        'metadata': doc.metadata,
-                        'timestamp': doc.metadata.get('timestamp', '1970-01-01'),
-                    }
-                    docs_as_dicts.append(doc_dict)
-                    logger.debug(f"Transformed document: {doc_dict}")
-                except Exception as e:
-                     logger.error(f"Error transforming document: {e}")
+            retrieved_context = await asyncio.wait_for(
+                    asyncio.get_event_loop().run_in_executor(
+                        executor,
+                        lambda: vector_store.similarity_search_with_score(message, k=1, filters={"user_id": user_id})
+                    ),
+                    timeout=30
+                )
+            docs_as_dicts = []
+            for doc, score in retrieved_context:
+                if score > 0.8:  # Only include results with a score > 0.8
+                    try:
+                        doc_dict = {
+                            'content': doc.page_content,
+                            'metadata': doc.metadata,
+                            'timestamp': doc.metadata.get('timestamp', '1970-01-01'),
+                        }
+                        docs_as_dicts.append(doc_dict)
+                        logger.debug(f"Transformed document: {doc_dict}")
+                    except Exception as e:
+                        logger.error(f"Error transforming document: {e}")
 
-        # Sort transformed documents
-        sorted_docs = sorted(
-            docs_as_dicts,
-            key=lambda x: datetime.fromisoformat(x['timestamp']),
-            reverse=True
-        )
-        
-        logger.debug(f"Sorted documents: {sorted_docs}")
+            # Sort transformed documents
+            sorted_docs = sorted(
+                docs_as_dicts,
+                key=lambda x: datetime.fromisoformat(x['timestamp']),
+                reverse=True
+            )
+            
+            logger.debug(f"Sorted documents: {sorted_docs}")
 
-        # Extract questions and responses
-        current_questions = [doc['metadata']['message'] for doc in sorted_docs]
-        ai_responses = [doc['metadata']['Assistant']['response'] for doc in sorted_docs]
+            # Extract questions and responses
+            current_questions = [doc['metadata']['message'] for doc in sorted_docs]
+            ai_responses = [doc['metadata']['Assistant']['response'] for doc in sorted_docs]
 
-        # Format documents
-        formatted_docs = []
-        formatted_docs.append({
-            "user_question": current_questions,
-            "ai_response": ai_responses,
-            "type": "history"
-        })
+            # Format documents
+            formatted_docs = []
+            formatted_docs.append({
+                "user_question": current_questions,
+                "ai_response": ai_responses,
+                "type": "history"
+            })
 
-        logger.info(f"Retrieved {len(formatted_docs)} documents for User {user_id}")
-        return formatted_docs
+            logger.info(f"Retrieved {len(formatted_docs)} documents for User {user_id}")
+            return formatted_docs
 
-    except asyncio.TimeoutError:
-        logger.error("Retrieve embedded data operation timed out after 30 seconds")
-        return None
-    except Exception as e:
-        logger.error(f"Error in retrieve_embedded_data: {str(e)}")
-        return None
+        except asyncio.TimeoutError:
+            logger.error("Retrieve embedded data operation timed out after 30 seconds")
+            return None
+        except Exception as e:
+            logger.error(f"Error in retrieve_embedded_data: {str(e)}")
+            return None
 
 def validate_inputs(message: Optional[str], user_id: str) -> None:
     """Validate input parameters."""
@@ -351,4 +357,3 @@ import atexit
 def shutdown_executor():
     executor.shutdown(wait=False)
     logger.info("Executor shutdown successfully")
-     
