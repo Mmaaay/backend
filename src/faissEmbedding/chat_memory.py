@@ -167,11 +167,11 @@ async def process_chat_stream(
     try:
         initial_scale_factor = 1  # Initialize the scale factor
         current_question = format_messages(messages) if isinstance(messages, str) else format_messages([messages[0]])
-
+        print(GEMENI_API_KEY)
         model = ChatGoogleGenerativeAI(
             model="gemini-1.5-pro",
             temperature=0,
-            max_tokens=1024,
+            max_tokens=512,
             streaming=True,
             timeout=None,
             max_retries=2,
@@ -213,7 +213,9 @@ async def process_chat_stream(
         CHUNK_SIZE = 2  # Further reduced chunk size for memory optimization
         
         logger.info("Starting stream for session: %s", session_id)
+        print(input_message)
         async for chunk in graph.astream(
+            
             {"messages": [input_message]}, config=config, stream_mode='messages'
         ):  
             if not isinstance(chunk, tuple):
