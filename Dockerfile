@@ -151,7 +151,7 @@ COPY --from=requirements /app/requirements.txt /tmp/requirements.txt
 # set noninteractive installation
 # Install Python dependencies using the virtual environment
 ENV PATH="/opt/venv/bin:$PATH"
-RUN /opt/venv/bin/uv pip install --upgrade pip && /opt/venv/bin/uv pip install --verbose -r /tmp/requirements.txt
+RUN /opt/venv/bin/uv pip install --upgrade pip && /opt/venv/bin/uv pip install --verbose -r /tmp/requirements.lock
     
 # Copy application files
 COPY src ./src
