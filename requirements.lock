@@ -188,7 +188,7 @@ markupsafe==2.1.5
     # via jinja2
 marshmallow==3.23.1
     # via dataclasses-json
-motor==3.5.1
+motor>=3.6
     # via
     #   -r requirements.txt
     #   langgraph-checkpoint-mongodb
@@ -304,7 +304,7 @@ pydantic-core==2.20.1
     # via pydantic
 pydantic-settings==2.4.0
     # via langchain-community
-pymongo<=4.9
+pymongo==4.9.2
     # via
     #   -r requirements.txt
     #   langgraph-checkpoint-mongodb

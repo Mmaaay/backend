@@ -1,5 +1,5 @@
 from typing import Generator, Any
-from pymongo import AsyncMongoClient
+from pymongo import MongoClient, AsyncMongoClient
 from constants import DB_CONNECTION_STRING
 
 
