@@ -33,6 +33,7 @@ HF_TOKEN = os.getenv("HF_TOKEN")
 VECTOR_STORE_DIR = "tafasir_quran_faiss_vectorstore"
 VECTOR_STORE_PATH = Path(VECTOR_STORE_DIR).absolute()  # Use absolute path
 MODEL_PATH = "models/embeddings"
+BATCH_SIZE = 32  # Add constant for batch control
 
 # Initialize environment and configurations
 warnings.filterwarnings("ignore")
@@ -50,18 +51,20 @@ async def managed_executor():
         executor.shutdown(wait=False)
 
 async def create_embeddings():
-    """Create embeddings with optimized memory settings."""
-    # 1. Force CPU usage
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    model_kwargs = {'device': device, 'token': HF_TOKEN}
-    encode_kwargs = {'normalize_embeddings': True}
+    """Create embeddings with strict CPU usage and memory controls"""
+    # Force CPU usage
+    os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+    device = "cpu"  # Force CPU
+    model_kwargs = {
+        'device': device,
+        'token': HF_TOKEN,
+    }
+    encode_kwargs = {
+        'normalize_embeddings': True,
+        'batch_size': BATCH_SIZE,
+    }
 
-    # Clear memory before loading
     gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-
-    logger.info(f"Creating embeddings on device: {device}")
 
     try:
         async with managed_executor() as executor:
@@ -71,16 +74,15 @@ async def create_embeddings():
                     lambda: HuggingFaceEmbeddings(
                         model_name=MODEL_PATH,
                         model_kwargs=model_kwargs,
-                        encode_kwargs=encode_kwargs
+                        encode_kwargs=encode_kwargs,
                     )
                 ),
                 timeout=30,
             )
-            # 2. Immediately call garbage collector
             gc.collect()
         return embeddings
-    except asyncio.TimeoutError:
-        logger.error("Embedding creation timed out after 30 seconds")
+    except (asyncio.TimeoutError, RuntimeError) as e:
+        logger.error(f"Embedding creation failed: {str(e)}")
         raise
 
 class StateManager:
@@ -160,21 +162,30 @@ class StateManager:
             raise
 
     async def clear_cache(self):
-        """Clear memory cache and release resources."""
+        """Enhanced memory cleanup"""
         async with self._lock:
-            if self._embeddings is not None:
+            if hasattr(self, '_embeddings') and self._embeddings is not None:
                 del self._embeddings
                 self._embeddings = None
 
-            if self._vector_store is not None:
+            if hasattr(self, '_vector_store') and self._vector_store is not None:
+                if hasattr(self._vector_store, 'index'):
+                    del self._vector_store.index
                 del self._vector_store
                 self._vector_store = None
 
+            self._chat_history.clear()
             gc.collect()
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+            except:
+                pass
 
-            logger.info("Cleared cache and released memory")
+            logger.info("Memory cache cleared")
 
     def get_chat_history(self, session_id: str) -> List[dict]:
         return self._chat_history.get(session_id, [])
@@ -187,7 +198,7 @@ class StateManager:
   
 
 async def embed_data(message: str, ai_response: str, user_id: str) -> Dict[str, Any]:
-    """Embed data into vector store with error handling."""
+    """Memory-optimized embedding"""
     try:
         validate_inputs(message, user_id)
         logger.info(f"Embedding data for User: {user_id}")
@@ -221,7 +232,7 @@ async def embed_data(message: str, ai_response: str, user_id: str) -> Dict[str, 
 
         try:
             async with managed_executor() as executor:
-                # Add document and save
+                # Split into smaller batches if needed
                 vector_store.add_documents([new_document], ids=[doc_id])
                 await asyncio.wait_for(
                     asyncio.get_event_loop().run_in_executor(
@@ -230,8 +241,8 @@ async def embed_data(message: str, ai_response: str, user_id: str) -> Dict[str, 
                     ),
                     timeout=30
                 )
-                # 2. Immediately free references and run gc
-                gc.collect()
+                gc.collect()  # Force collection after each operation
+                
             # Release references
             del executor
 
@@ -245,6 +256,11 @@ async def embed_data(message: str, ai_response: str, user_id: str) -> Dict[str, 
         except asyncio.TimeoutError:
             logger.error("Embedding data operation timed out after 30 seconds")
             return {"status": "error", "message": "Operation timed out."}
+        except RuntimeError as e:
+            if "out of memory" in str(e):
+                logger.error("Out of memory during embedding, attempting cleanup")
+                await state_manager.clear_cache()
+                raise
         except Exception as e:
             logger.error(f"Error adding document: {str(e)}")
             return {"status": "error", "message": str(e)}

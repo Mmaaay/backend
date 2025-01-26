@@ -1,4 +1,5 @@
 import asyncio
+import gc
 import logging
 import os
 import sys
@@ -163,7 +164,7 @@ async def process_chat_stream(
     history_ai_responses:List[str] = None, 
     session_id: str = None
 ) -> AsyncGenerator[str, None]:
-    """Process chat messages and return AI response as a stream with smooth chunking"""
+    """Memory-optimized chat streaming"""
     try:
         initial_scale_factor = 1  # Initialize the scale factor
         current_question = format_messages(messages) if isinstance(messages, str) else format_messages([messages[0]])
@@ -171,10 +172,10 @@ async def process_chat_stream(
         model = ChatGoogleGenerativeAI(
             model="gemini-1.5-pro",
             temperature=0,
-            max_tokens=512,
+            max_tokens=256,  # Reduced from 512
             streaming=True,
-            timeout=None,
-            max_retries=2,
+            timeout=30,  # Add timeout
+            max_retries=1,  # Reduced retries
             api_key=GEMENI_API_KEY,
             safety_settings={
                 HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
@@ -210,7 +211,7 @@ async def process_chat_stream(
         
         # Buffer for accumulating partial words/sentences
         text_buffer = ""
-        CHUNK_SIZE = 2  # Further reduced chunk size for memory optimization
+        CHUNK_SIZE = 1  # Further reduced chunk size for memory optimization
         
         logger.info("Starting stream for session: %s", session_id)
         print(input_message)
@@ -230,6 +231,11 @@ async def process_chat_stream(
                     yield complete_chunk + " "
                 text_buffer = chunks[-1] if chunks else ""
 
+            # Clear variables periodically
+            if len(text_buffer) > 1000:
+                text_buffer = text_buffer[-100:]
+                gc.collect()
+
         # Yield remaining text in the buffer
         if text_buffer:
             yield text_buffer
@@ -243,6 +249,10 @@ async def process_chat_stream(
     except Exception as e:
         logger.error("Error in streaming chat: %s", str(e), exc_info=True)
         yield f"Error: {str(e)}"
+    finally:
+        # Cleanup
+        await state_manager.clear_cache()
+        gc.collect()
 
 async def embed_system_response(current_question: str, ai_response: str, session_id: str):
     """Embeds the system's response with metadata"""
