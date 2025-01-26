@@ -167,8 +167,8 @@ async def process_chat_stream(
 ) -> AsyncGenerator[str, None]:
     """Process chat messages and return AI response as a stream with smooth chunking"""
     try:
+        initial_scale_factor = 1  # Initialize the scale factor
         current_question = format_messages(messages) if isinstance(messages, str) else format_messages([messages[0]])
-
 
         model = ChatGoogleGenerativeAI(
             model="gemini-1.5-pro",
@@ -212,7 +212,7 @@ async def process_chat_stream(
                 text_buffer = chunks[-1] if chunks else ""
                 initial_scale_factor = 1  # Reset after initial burst
 
-# Yield remaining text
+        # Yield remaining text in the buffer
         if text_buffer:
             yield text_buffer
 
