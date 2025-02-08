@@ -179,7 +179,7 @@ async def process_chat_stream(
             
             HUGGINGFACEHUB_API_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
             print("HUGGINGFACEHUB_API_TOKEN", HUGGINGFACEHUB_API_TOKEN)
-            
+            login(token=HUGGINGFACEHUB_API_TOKEN)
             llm = HuggingFaceEndpoint(
                 repo_id="silma-ai/SILMA-9B-Instruct-v1.0",
                 task="text-generation",
@@ -230,17 +230,6 @@ async def process_chat_stream(
             "role": "user",
             "content": f"Current Question: {messages} " 
         }
-        def get_user_id(config: RunnableConfig) -> str:
-            user_id = config["configurable"].get("user_id")
-            if user_id is None:
-                raise ValueError("User ID needs to be provided to save a memory.")
-
-            return user_id
-        
-      
-        
-    
-
 
         async def call_model(state: MessagesState):
             chain = prompt | chat
