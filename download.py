@@ -1,7 +1,7 @@
 from transformers import AutoModel, AutoTokenizer
 
-MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-SAVE_PATH = "/home/mazen/coding/Quran-back/backend/models/embeddings"
+MODEL_NAME = "silma-ai/SILMA-9B-Instruct-v1.0"
+SAVE_PATH = f"/home/mazen/coding/Quran-back/backend/models/text-generation/"
 
 def download_model():
     # Download and save model

@@ -44,7 +44,6 @@ async def signup(user: dto.CreateUser  ,res:Response , user_service: UserService
     returned_user = await user_service.create_user(
         user
     )
-    print(returned_user)
     
     token = create_token({ "id" : returned_user.id , "name": returned_user.name, "email": returned_user.email , "role": returned_user.role})    
     return token

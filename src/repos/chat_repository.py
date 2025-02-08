@@ -87,7 +87,6 @@ class MessageRepository(BaseRepository[Messages]):
         async for message in cursor:
             message['_id'] = str(message['_id'])
             messages.append(Messages(**message))
-        print(messages)
         return messages
     
     
