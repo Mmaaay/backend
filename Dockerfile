@@ -105,7 +105,7 @@ RUN apt-get update && apt-get install -y python3 python3-pip
 RUN pip3 install -U "huggingface_hub[cli]"
 
 # Authenticate with Hugging Face
-RUN echo "$HF_TOKEN" | huggingface-cli login --token
+RUN echo "$HF_TOKEN" | huggingface-cli login --token $HF_TOKEN
 
 # Install huggingface_hub CLI before logging in
 
