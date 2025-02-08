@@ -107,11 +107,6 @@ RUN pip3 install -U "huggingface_hub[cli]"
 # Authenticate with Hugging Face
 RUN echo "$HF_TOKEN" | huggingface-cli login --token $HF_TOKEN
 
-# Install huggingface_hub CLI before logging in
-
-# Add the login command to authenticate with Hugging Face
-RUN echo "$HF_TOKEN" | huggingface-cli login
-
 # Install build requirements for Python 3.12
 WORKDIR /app/build
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y install tzdata
