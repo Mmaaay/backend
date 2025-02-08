@@ -179,7 +179,6 @@ async def process_chat_stream(
             
             HUGGINGFACEHUB_API_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
             print("HUGGINGFACEHUB_API_TOKEN", HUGGINGFACEHUB_API_TOKEN)
-            login(token=HUGGINGFACEHUB_API_TOKEN)
             llm = HuggingFaceEndpoint(
                 repo_id="silma-ai/SILMA-9B-Instruct-v1.0",
                 task="text-generation",
@@ -191,7 +190,7 @@ async def process_chat_stream(
             logger.error(f"Failed to initialize HuggingFaceEndpoint: {e}")
             # Handle the error appropriately, e.g., retry or abort
 
-        chat = ChatHuggingFace(llm=llm, verbose=True)
+        chat = ChatHuggingFace(llm=llm, verbose=True , kwargs={})
         
         initial_scale_factor = 1  # Initialize the scale factor
         current_question = format_messages(messages) if isinstance(messages, str) else format_messages([messages[0]])

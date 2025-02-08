@@ -4,7 +4,8 @@ from db.mongo_client import MongoDBClient
 import logging
 from faissEmbedding.embeddings_manager import state_manager, initialize_services
 from db.supabase import Supabase
-from constants import SUPABASE_URL, SUPABASE_KEY
+from huggingface_hub import login
+from constants import SUPABASE_URL, SUPABASE_KEY, HUGGINGFACE_API_KEY
 import asyncio
 import os
 import gc
@@ -29,6 +30,11 @@ class DatabaseLifespan:
             app.state.database = MongoDBClient.get_db()
             app.state.quran_collection_user = app.state.database.get_collection("users")
             logger.info("MongoDB connected successfully")
+            
+            logger.info("Logging into Huggingface Hub")
+            login(token=HUGGINGFACE_API_KEY)
+            logger.info("Huggingface Hub login successful")
+            
             
             # Initialize Supabase (lightweight)
             supabase_instance = Supabase(SUPABASE_URL, SUPABASE_KEY)
