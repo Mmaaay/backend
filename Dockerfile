@@ -98,6 +98,9 @@ ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 ENV CUDA_HOME=/usr/local/cuda
 
 # Environment variables from the previous stage are already set, including HF_TOKEN.
+# Install huggingface_hub CLI before logging in
+RUN pip install -U "huggingface_hub[cli]"
+
 # Add the login command to authenticate with Hugging Face
 RUN echo "$HF_TOKEN" | huggingface-cli login
 
