@@ -98,13 +98,15 @@ RUN apt-get update && apt-get install -y curl gnupg \
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 ENV CUDA_HOME=/usr/local/cuda
 
+# Install Python 3.12 and pip
+RUN apt-get update && apt-get install -y python3 python3-pip
+
 # Install huggingface_hub CLI
-RUN pip install -U "huggingface_hub[cli]"
+RUN pip3 install -U "huggingface_hub[cli]"
 
 # Authenticate with Hugging Face
 RUN echo "$HF_TOKEN" | huggingface-cli login --token
 
-# Environment variables from the previous stage are already set, including HF_TOKEN.
 # Install huggingface_hub CLI before logging in
 
 # Add the login command to authenticate with Hugging Face
