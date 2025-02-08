@@ -97,6 +97,10 @@ RUN apt-get update && apt-get install -y curl gnupg \
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 ENV CUDA_HOME=/usr/local/cuda
 
+# Environment variables from the previous stage are already set, including HF_TOKEN.
+# Add the login command to authenticate with Hugging Face
+RUN echo "$HF_TOKEN" | huggingface-cli login
+
 # Install build requirements for Python 3.12
 WORKDIR /app/build
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y install tzdata
