@@ -30,7 +30,7 @@ class DatabaseLifespan:
             app.state.database = MongoDBClient.get_db()
             app.state.quran_collection_user = app.state.database.get_collection("users")
             logger.info("MongoDB connected successfully")
-            
+            print("enviroment HUGGINGFACE_API_KEY ", HUGGINGFACE_API_KEY)
             logger.info("Logging into Huggingface Hub")
             login(token=HUGGINGFACE_API_KEY)
             logger.info("Huggingface Hub login successful")

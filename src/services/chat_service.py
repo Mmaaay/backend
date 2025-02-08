@@ -73,7 +73,8 @@ class ChatService:
                 messages=current_question,
                 history_questions=history_questions,
                 history_ai_responses=history_ai_responses,
-                session_id=session_id 
+                session_id=session_id ,
+                user_id=user_id,
             ):
                 logger.debug(f"Streaming chunk: {chunk}")
                 ai_response_chunks.append(chunk)

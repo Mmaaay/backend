@@ -170,7 +170,8 @@ async def process_chat_stream(
     messages: List[str], 
     history_questions: List[str] = None,
     history_ai_responses: List[str] = None, 
-    session_id: str = None
+    session_id: str = None,
+    user_id: str = None
 ) -> AsyncGenerator[str, None]:
     """Memory-optimized chat streaming"""
     try:
@@ -218,13 +219,18 @@ async def process_chat_stream(
         mongodb_client = client
         checkpointer = AsyncMongoDBSaver(mongodb_client)
         data = await checkpointer.aget(config=config)
-        last_id = data['channel_values']['messages'][-1].id
-        checkpoint_config = {
-            "configurable": {
-                "thread_id": session_id,
-                "checkpoint_id": last_id
-        }}
-        
+        if data :
+            last_id = data['channel_values']['messages'][-1].id
+        elif not data:
+            last_id = None
+        print("last_id \n", last_id)
+        if(last_id):
+            checkpoint_config = {
+                "configurable": {
+                    "thread_id": session_id,
+                    "checkpoint_id": last_id ,
+            }}
+            
         input_message = {
             "role": "user",
             "content": f"Current Question: {messages} " 
@@ -233,7 +239,10 @@ async def process_chat_stream(
         async def call_model(state: MessagesState):
             chain = prompt | chat
             state["messages"] = []
-            checkpoints = checkpointer.alist(config=config, limit=1, before=await checkpointer.aget(config=checkpoint_config))
+            if last_id:
+                checkpoints = checkpointer.alist(config=config, limit=1, before=await checkpointer.aget(config=checkpoint_config))
+            else:
+                checkpoints = checkpointer.alist(config=config, limit=1)
             checkpoints_list = []
             async for checkpoint in checkpoints:
                 checkpoints_list.append(checkpoint)
@@ -272,7 +281,7 @@ async def process_chat_stream(
         logger.info("Starting stream for session: %s", session_id)
         print(input_message)
         # Retrieve embedded data before processing
-        retrieved_data = await retrieve_embedded_data(messages, session_id)
+        retrieved_data = await retrieve_embedded_data(messages, user_id)
         if retrieved_data:
             # Process retrieved data as needed
             pass  # Add any processing logic if necessary

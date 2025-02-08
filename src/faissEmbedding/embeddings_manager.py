@@ -457,14 +457,9 @@ async def retrieve_embedded_data(message: Optional[str], user_id: str) -> Option
         vector_store = await asyncio.wait_for(
             state_manager.get_vector_store(), timeout=60  # Increased from 30
         )
-        retrieved_context = await asyncio.wait_for(
-                asyncio.get_event_loop().run_in_executor(
-                    # 3. Keep single-threaded executor
-                    executor,
-                    lambda: vector_store.similarity_search_with_score(message, k=1, filters={"user_id": user_id})  # Increased k to limit history
-                ),
-                timeout=60  # Increased from 30
-            )
+        retrieved_context = await vector_store.asimilarity_search_with_score(message, k=1, filters={"user_id": user_id})  # Increased k to limit history
+                
+            
         docs_as_dicts = []
         for doc, score in retrieved_context:
             if score > 0.8:  # Only include results with a score > 0.8
