@@ -104,6 +104,9 @@ RUN apt-get update && apt-get install -y python3 python3-pip
 # Install huggingface_hub CLI
 RUN pip3 install -U "huggingface_hub[cli]"
 
+#set Hugging Face token
+ARG HF_TOKEN
+ENV HF_TOKEN=$HF_TOKEN
 
 
 # Authenticate with Hugging Face
