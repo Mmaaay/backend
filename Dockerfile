@@ -76,6 +76,7 @@ WORKDIR /app
 
 RUN pip install uv 
 
+RUN pip install -U "huggingface_hub[cli]"
 # Copy requirements file
 COPY requirements.txt .
 
@@ -99,7 +100,6 @@ ENV CUDA_HOME=/usr/local/cuda
 
 # Environment variables from the previous stage are already set, including HF_TOKEN.
 # Install huggingface_hub CLI before logging in
-RUN pip install -U "huggingface_hub[cli]"
 
 # Add the login command to authenticate with Hugging Face
 RUN echo "$HF_TOKEN" | huggingface-cli login
