@@ -4,6 +4,7 @@ from models.dto import CreateUser, GetUser
 from models.Users import User
 from repos.user_repository import UserRepository
 from utils.bcrypt_hashing import HashLib
+from fastapi import Depends
 
 class UserService:
     def __init__(self):
@@ -53,3 +54,8 @@ class UserService:
 
     async def delete_user(self, user_id: str) -> None:
         await self.user_repo.delete(user_id)
+
+def get_user_service() -> UserService:
+    return UserService()
+
+

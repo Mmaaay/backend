@@ -1,2 +1,44 @@
-[tool.pytest.ini_options]
-pythonpath = "src"
+
+[project]
+name = "your_project_name"
+version = "0.1.0"
+description = "Your project description"
+authors = [
+    { name = "Sébastien Eustace", email = "sebastien@eustace.io" },
+]
+dependencies = [
+    "torch==2.1.0",
+    "faiss-gpu-cu12==1.9.0.0",
+    "uvicorn",
+    "fastapi>=0.95.0,<0.96.0",
+    # Remove or adjust starlette if Poetry manages it
+    # "starlette==0.45.2",
+    # Add other dependencies here
+]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+# Optional: If you're using Poetry-specific configurations
+[tool.poetry]
+name = "your_project_name"
+version = "0.1.0"
+description = "Your project description"
+
+license = "MIT"  # Specify your project's license
+
+[tool.poetry.dependencies]
+python = "^3.12"
+torch = "2.1.0"
+faiss-gpu-cu12 = "1.9.0.0"
+uvicorn = "^0.20.0"
+fastapi = "0.95.0"  # Ensure compatibility
+# Remove the following invalid entry
+# authors = [
+#     "Sébastien Eustace <sebastien@eustace.io>",
+# ]
+# Add other dependencies here
+
+[tool.poetry.dev-dependencies]
+# Add development dependencies here, e.g., pytest = "^7.0.0"

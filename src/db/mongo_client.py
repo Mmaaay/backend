@@ -18,6 +18,7 @@ class MongoDBClient:
             try:
                 cls.client = AsyncIOMotorClient(DB_CONNECTION_STRING)
                 logger.info("MongoDB connection established")
+                
             except Exception as e:
                 logger.error(f"Failed to connect to MongoDB: {e}")
                 raise
@@ -38,6 +39,7 @@ class MongoDBClient:
         """Get database instance"""
         if cls.client is None:
             raise Exception("Database not initialized")
+        
         return cls.client["Quran"]  # Replace with a configurable database name if needed
     
     @classmethod

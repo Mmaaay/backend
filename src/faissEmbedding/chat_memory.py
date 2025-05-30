@@ -1,10 +1,21 @@
+import asyncio
+import gc
 import logging
-from typing import Dict, List, Tuple, AsyncGenerator, AsyncIterator
+import os
+from dotenv import load_dotenv
+import sys
 from datetime import datetime
+from typing import AsyncGenerator, Dict, List, Tuple
+from constants import HUGGINGFACE_API_KEY
 
-from faissEmbedding.embeddings_manager import (embed_data, embed_system_response,
-                                               retrieve_embedded_data,
-                                               state_manager)
+from langgraph.checkpoint.mongodb import MongoDBSaver
+from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import tool
+from getpass import getpass
+from huggingface_hub import login
+from langchain_huggingface import HuggingFaceEndpoint,ChatHuggingFace
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from langchain.schema import (AIMessage, BaseMessage, HumanMessage,
                               SystemMessage)
 from langchain_core.output_parsers import StrOutputParser
@@ -12,47 +23,73 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_google_genai import (ChatGoogleGenerativeAI, HarmBlockThreshold,
                                     HarmCategory)
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.mongodb.aio import AsyncMongoDBSaver
 from langgraph.graph import END, START, MessagesState, StateGraph
+
+from constants import GEMENI_API_KEY, HF_TOKEN
+from db.context import client
+from faissEmbedding.embeddings_manager import (embed_data,
+                                               retrieve_embedded_data,
+                                               state_manager)
 
 # Remove ConversationHistory class and its instance as we'll use retrieved messages instead
 
 system_template = """
-You are a helpful arabic assistant specializing in Quranic tafsir. 
-Your goal is to answer questions by retrieving relevant tafsir and Quranic ayat.
-Be respectful and precise in your responses. Use simple language for better understanding.
+You are an Arabic Quranic assistant specializing in Tafsir. Your role is to provide accurate, respectful, and concise answers to questions about the Quran, using relevant Tafsir and Quranic Ayat for context.
 
-When someone asks "what was my last question", look at the history and find the most recent question (excluding the current one).
-For all other questions, provide a direct answer based on your knowledge.
+### Context  
+- **Context:** {messages}   
 
-Current conversation history:
-{{retrieved_texts}}
+### Instructions  
+1. **Understand the Query:**  
+   - Analyze the User's question to identify its intent and main focus.  
+   - Clarify whether the question relates to a specific Ayah, concept, or theme.  
 
-Current user question: {{messages}}
+2. **Review Available Context:**  
+   - If retrieved Tafsir or Quranic Ayat are provided, incorporate the most relevant information.  
+   - Highlight any connections between the question and the broader Quranic message.  
 
-Please provide a clear and direct response.
+3. **Craft Your Response:**  
+   - Begin with a direct and concise answer.  
+   - Use simple and respectful language, avoiding overly complex terms.  
+   - Include the relevant Ayah(s) or Tafsir excerpts to support your response.  
+
+4. **Maintain Respectful Tone:**  
+   - Address the User with humility and respect.  
+   - Ensure that all interpretations align with established Quranic Tafsir principles.  
+
+5. **Focus on Clarity and Relevance:**  
+   - Avoid lengthy digressions or unrelated details.  
+   - Prioritize clarity and precision in your explanations.  
+
+End your response with an invitation to ask follow-up questions if needed.  
+
 """
 
-prompt = ChatPromptTemplate.from_messages(
-    [
-        ("system", system_template),
-        MessagesPlaceholder(variable_name="messages"),
-    ]
-)
+# Update prompt template to use simple string formatting
+prompt = ChatPromptTemplate.from_messages([
+    ("system", system_template),
+    MessagesPlaceholder("messages"),
+
+])
+
+
+
 # Configure logger
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.ERROR)
 handler = logging.StreamHandler()
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-async def embed_message(message: str, session_id: str , ):
+async def embed_message(message: str, user_id: str):
     """Embeds a message using the embedding manager"""
-    return await embed_data(message, session_id)
+    return await embed_data(message, user_id)
 
-async def retrieve_message(message: str, session_id: str):
+async def retrieve_message(message: str, user_id: str):
     """Retrieves embedded data for a message"""
-    return await retrieve_embedded_data(message, session_id)
+    return await retrieve_embedded_data(message, user_id)
 
 def convert_messages_to_string(messages):
     """Convert message objects to string format"""
@@ -73,7 +110,7 @@ def format_messages(message_input) -> list[BaseMessage]:
     
     elif isinstance(message_input, dict):
         content = message_input.get('content', '')
-        role = message_input.get('role', 'human')
+        role = message_input.get('role', 'user')
         if role == 'assistant':
             return [AIMessage(content=content)]
         elif role == 'system':
@@ -88,7 +125,7 @@ def format_messages(message_input) -> list[BaseMessage]:
                 formatted_messages.append(msg)
             elif isinstance(msg, dict):
                 content = msg.get('content', '')
-                role = msg.get('role', 'human')
+                role = msg.get('role', 'user')
                 if role == 'assistant':
                     formatted_messages.append(AIMessage(content=content))
                 elif role == 'system':
@@ -101,74 +138,74 @@ def format_messages(message_input) -> list[BaseMessage]:
     else:
         raise ValueError("Messages must be a string, dictionary, or list of messages")
 
-def get_last_question(history_entries: List[dict]) -> str:
-    """Return the latest question content from the sorted history list."""
-    if not history_entries:
-        return "No previous question found."
+async def process_chat(messages, history_questions: List[str], history_ai_responses:List[str], session_id: str = None):
+    """Process chat messages and return AI response"""
+    # 3. Minimize concurrency by removing extra executor calls
+    response_chunks = []
+    async for chunk in process_chat_stream(messages, history_questions, history_ai_responses, session_id):
+        response_chunks.append(chunk)
+    return "".join(response_chunks)
+
+def chunk_text(text: str, chunk_size: int = 10) -> List[str]:
+    """Split text into smaller chunks while preserving word boundaries."""
+    words = text.split()
+    chunks = []
+    current_chunk = []
+    current_size = 0
     
-    # Filter for only user questions
-    questions = [
-        entry for entry in history_entries 
-        if entry.get('metadata', {}).get('source') == 'user' 
-        and entry.get('metadata', {}).get('is_question')
-        and entry.get('content') != "what was my last question"  # Exclude the current question
-    ]
+    for word in words:
+        if current_size + len(word) + 1 <= chunk_size:
+            current_chunk.append(word)
+            current_size += len(word) + 1
+        else:
+            if current_chunk:
+                chunks.append(" ".join(current_chunk))
+            current_chunk = [word]
+            current_size = len(word)
     
-    return questions[0]["content"] if questions else "No previous question found."
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
+    
+    return chunks
 
 async def process_chat_stream(
-    messages, 
-    retrieved_texts: str | List[Dict] = None, 
-    session_id: str = None
+    messages: List[str], 
+    history_questions: List[str] = None,
+    history_ai_responses: List[str] = None, 
+    session_id: str = None,
+    user_id: str = None
 ) -> AsyncGenerator[str, None]:
-    """Process chat messages and return AI response as a stream"""
+    """Memory-optimized chat streaming"""
     try:
-        formatted_messages = format_messages(messages)
-        message_contents = [msg.content for msg in formatted_messages]
-        current_question = message_contents[0] if message_contents else ""
-        
-        # Initialize and embed like before
-        if retrieved_texts is None or isinstance(retrieved_texts, str):
-            retrieved_texts = []
-        
-        embedding_result = await embed_message(current_question, session_id)
-        embedding_status = embedding_result.get("status", "error")
-        
-        # Format history similar to before but return earlier
-        formatted_texts = "No previous conversation history found."
-        if embedding_status != "error":
-            retrieved_docs = await retrieve_message(current_question, session_id)
-            if retrieved_docs:
-                history_entries = [
-                    doc for doc in retrieved_docs 
-                    if isinstance(doc, dict) 
-                    and doc.get('metadata', {}).get('timestamp')
-                ]
+        try:
+            
+            print("HUGGINGFACEHUB_API_TOKEN", HUGGINGFACE_API_KEY)
+            llm = HuggingFaceEndpoint(
+                repo_id="microsoft/Phi-3-mini-4k-instruct",
+                task="text-generation",
+                do_sample=False,
+                repetition_penalty=1.03,
+                huggingfacehub_api_token=HUGGINGFACE_API_KEY,
                 
-                if history_entries:
-                    if current_question.lower().strip() == "what was my last question":
-                        questions = [
-                            doc for doc in history_entries 
-                            if doc.get('metadata', {}).get('is_question') 
-                            and doc.get('metadata', {}).get('source') == 'user'
-                            and doc['content'].lower() != "what was my last question"
-                        ]
-                        formatted_texts = f"Previous question asked: {questions[0]['content']}" if questions else "No previous questions found."
-                    else:
-                        history_texts = "\nRecent conversation:\n" + "\n".join([
-                            f"- {'Q: ' if doc.get('metadata', {}).get('is_question') else 'A: '}{doc['content']}"
-                            for doc in history_entries[:3]
-                        ])
-                        formatted_texts = history_texts
-
-        # Setup streaming model
+                provider="hf-inference",
+                verbose=True,
+            )
+        except Exception as e:  
+            logger.error(f"Failed to initialize HuggingFaceEndpoint: {e}")
+            # Handle the error appropriately, e.g., retry or abort
+        chat = ChatHuggingFace(llm=llm, verbose=True , kwargs={})
+        #to trigger a reload
+        
+        initial_scale_factor = 1  # Initialize the scale factor
+        current_question = format_messages(messages) if isinstance(messages, str) else format_messages([messages[0]])
         model = ChatGoogleGenerativeAI(
             model="gemini-1.5-pro",
-            temperature=0.0,
-            max_tokens=2048,
-            streaming=True,  # Enable streaming
-            timeout=None,
-            max_retries=2,
+            temperature=0,
+            max_tokens=256,  # Reduced from 512
+            streaming=True,
+            timeout=60,  # Increased from 30
+            max_retries=1,  # Reduced retries
+            api_key=GEMENI_API_KEY,
             safety_settings={
                 HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
                 HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
@@ -176,42 +213,127 @@ async def process_chat_stream(
             }
         )
 
-        chain = prompt | model | StrOutputParser()
         
-        print(f"\n[Stream Start] Processing question: {current_question}")
-        print(f"[Stream] History context: {formatted_texts[:100]}...")  # Show first 100 chars
-        
-        response_text = []
-        print("\n[Stream] AI Response starting...")
-        print("-" * 50)
-        async for chunk in chain.astream({
-            "messages": message_contents,
-            "retrieved_texts": formatted_texts
-        }):
-            print(f"[Stream Chunk] {chunk}", end="", flush=True)  # Print chunks as they come
-            response_text.append(chunk)
-            yield chunk
-        print("\n" + "-" * 50)
-        print("[Stream End] Response complete\n")
+        config = {
+        "configurable": {
+            "thread_id": session_id,
+        }}
 
-        # After streaming is complete, embed the full response
-        if embedding_status != "error":
-            full_response = "".join(response_text)
-            print(f"[Stream] Embedding complete response (length: {len(full_response)})")
-            await embed_system_response(full_response, session_id, current_question)
+        mongodb_client = client
+        checkpointer = AsyncMongoDBSaver(mongodb_client)
+        data = await checkpointer.aget(config=config)
+        if data :
+            last_id = data['channel_values']['messages'][-1].id
+        elif not data:
+            last_id = None
+        print("last_id \n", last_id)
+        if(last_id):
+            checkpoint_config = {
+                "configurable": {
+                    "thread_id": session_id,
+                    "checkpoint_id": last_id ,
+            }}
+            
+        input_message = {
+            "role": "user",
+            "content": f"Current Question: {messages} " 
+        }
+
+        async def call_model(state: MessagesState):
+            chain = prompt | chat
+            state["messages"] = []
+            if last_id:
+                checkpoints = checkpointer.alist(config=config, limit=1, before=await checkpointer.aget(config=checkpoint_config))
+            else:
+                checkpoints = checkpointer.alist(config=config, limit=1)
+            checkpoints_list = []
+            async for checkpoint in checkpoints:
+                checkpoints_list.append(checkpoint)
+            for checkpoint in reversed(checkpoints_list):
+                if (channel_values := checkpoint.checkpoint.get('channel_values')) and (messages := channel_values.get('messages')):
+                    for message in messages: 
+                        if isinstance(message, HumanMessage):
+                            filtered_message = HumanMessage(
+                                content=message.content,
+                                additional_kwargs={}
+                            )
+                            state["messages"].append(filtered_message)
+                        if isinstance(message, AIMessage):
+                            filtered_message = AIMessage(
+                                content=message.content,
+                                additional_kwargs={}
+                            )
+                            state["messages"].append(filtered_message)
+                            
+            if len(state["messages"]) >= 3:
+                state["messages"] = state["messages"][-3:]
+                            
+            response = await chain.ainvoke({"messages": state["messages"]})
+            return {"messages": response}
+        
+        builder = StateGraph(MessagesState)
+        builder.add_node("call_model", call_model)
+        builder.add_edge(START, "call_model")
+        builder.add_edge("call_model", END)
+        graph = builder.compile(checkpointer=checkpointer)
+
+        
+        # Buffer for accumulating the complete response
+        text_buffer = ""
+        
+        logger.info("Starting stream for session: %s", session_id)
+        print(input_message)
+        # Retrieve embedded data before processing
+        retrieved_data = await retrieve_embedded_data(messages, user_id)
+        if retrieved_data:
+            # Process retrieved data as needed
+            pass  # Add any processing logic if necessary
+
+        async for chunk in graph.astream(
+            
+            {"messages": [input_message]}, config=config, stream_mode='messages' 
+        ):  
+            if not isinstance(chunk, tuple):
+                logger.error("Unexpected chunk type: %s", type(chunk))
+                continue  # Skip processing this chunk
+            
+            message_chunk, metadata = chunk
+            text_buffer += message_chunk.content  # Accumulate content
+
+        # Yield the complete text after successful streaming
+        yield text_buffer
+
+        # Clear variables periodically
+        if len(text_buffer) > 1000:
+            text_buffer = text_buffer[-100:]
+            gc.collect()
+       
+        # Yield remaining text in the buffer
+        if text_buffer:
+            yield text_buffer
+
+        # Clear buffer
+        text_buffer = ""
+        chunks = []
+        temp_ai_temp = None  # Clear any additional temporary variables if present
+
+        logger.info("Stream completed for session: %s", session_id)
 
     except Exception as e:
-        print(f"\n[Stream Error] {str(e)}")
-        logger.error(f"Error in streaming chat: {str(e)}", exc_info=True)
+        logger.error("Error in streaming chat: %s", str(e), exc_info=True)
         yield f"Error: {str(e)}"
+    finally:
+        # Cleanup
+        await state_manager.clear_cache()
+        gc.collect()
+        text_buffer = None  # Clear buffer reference
+        chunks = None        # Clear chunks reference
+        temp_ai_temp = None  # Ensure any temporary variables are cleared
 
-# Keep the old process_chat for compatibility but make it use the streaming version
-async def process_chat(messages, retrieved_texts: str | List[Dict] = None, session_id: str = None):
-    response_chunks = []
-    async for chunk in process_chat_stream(messages, retrieved_texts, session_id):
-        response_chunks.append(chunk)
-    
-    return {
-        "messages": "".join(response_chunks),
-        "embedding_status": "success"
-    }
+async def embed_system_response(current_question: str, ai_response: str, user_id: str):
+    """Embeds the system's response with metadata"""
+    result = await embed_data(current_question, ai_response, user_id)
+    return result
+
+
+

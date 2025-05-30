@@ -1,9 +1,9 @@
 from typing import List, Optional
 from datetime import datetime
-from models.dto import ChatSessionBase, Messages
+from models.dto import ChatSessionBase, MessageContent, MessageUserInterface , MessageDetails
+from models.Messages import Messages
 from repos.base_repository import BaseRepository
 from db.collections import Collections
-
 class ChatRepository(BaseRepository[ChatSessionBase]):
     def __init__(self):
         super().__init__(Collections.chat_sessions(), ChatSessionBase)
@@ -53,12 +53,12 @@ class MessageRepository(BaseRepository[Messages]):
     def __init__(self):
         super().__init__(Collections.messages(), Messages)
         
-    async def get_session(self , session_id:str) :
-        return await self.collection.find_one({"session_id":session_id})
-    
-    async def create_message(self, message_data) :
+    async def get_session(self, session_id: str):
+        return await self.collection.find_one({"session_id": session_id})
+        
+    async def create_message(self, message_data: dict):
         return await self.create(message_data)
-    
+        
     async def get_chat_history(
         self,
         session_id: str,
@@ -75,6 +75,19 @@ class MessageRepository(BaseRepository[Messages]):
             messages.append(Messages(**message))
         return messages
     
-  
+    
+    
+    
+    async def get_message_details(self, session_id: str) -> List[MessageDetails]:
+        cursor = self.collection.find(
+            {"session_id": session_id}
+        ).sort("created_at", 1)
         
-        
+        messages = []
+        async for message in cursor:
+            message['_id'] = str(message['_id'])
+            messages.append(Messages(**message))
+        return messages
+    
+    
+    

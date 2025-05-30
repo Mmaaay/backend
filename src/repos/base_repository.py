@@ -2,8 +2,9 @@ from typing import Generic, TypeVar, Optional, Type
 from pydantic import BaseModel
 from bson import ObjectId
 from pymongo.collection import Collection
+from models.Base import BaseDBModel
 
-T = TypeVar('T', bound=BaseModel)
+T = TypeVar('T', bound=BaseDBModel)
 
 class BaseRepository(Generic[T]):
     def __init__(self, collection: Collection, model_class: Type[T]):

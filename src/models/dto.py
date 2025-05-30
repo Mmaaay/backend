@@ -1,16 +1,21 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from datetime import datetime
-from typing import Optional , Dict, List
+from typing import Any, Optional , Dict, List
 from bson import ObjectId
 from datetime import datetime
+from models.Messages import MessageRole, Messages
+from models.Base import BaseDBModel
 
 
+# ==========================
+# USER MODELS
+# ==========================
 # USER
 class CreateUser(BaseModel):
     name: str
     email: str
     role: str = "user"
-    password: str = Field(..., min_length=4),
+    password: str = Field(..., min_length=4)
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
 
@@ -40,9 +45,11 @@ class UpdateUserPass(BaseModel):
     
     
 class changeUserPass(BaseModel):
-    
     new_password: str = Field(... , min_length=4)
     
+# ==========================
+# TOKEN MODELS
+# ==========================
 # Token
 class Token(BaseModel):
     user_id: str   
@@ -58,8 +65,11 @@ class Token(BaseModel):
 
     
     
+# ==========================
+# CHAT SESSION MODELS
+# ==========================
 #chat
-class ChatSessionBase(BaseModel):
+class ChatSessionBase(BaseDBModel):
     """Base model for chat session data"""
     session_title: str = Field(..., description="Title of the chat session")
     session_id:str=Field(...,description="Unique Chat ID")
@@ -78,8 +88,6 @@ class CreateChatSession(ChatSessionBase):
 
 class createChatSessionResponse(BaseModel):
     """Model for creating a new chat session"""
-    user_id : str = Field(..., description="ID of the user who owns this session")
-    session_id : str = Field(..., description="ID of the session")
     session_title : str = Field(..., description="Title of the session")
     pass
 
@@ -87,18 +95,13 @@ class CreateMessage(BaseModel):
     """Model for creating a new message"""
     session_id: str = Field(..., description="ID of the chat session this message belongs to")
     user_id: str = Field(..., description="ID of the user who sent the message")
-    role: str = Field(..., description="Role of the message sender")
-    content: Dict = Field(..., description="Content of the message")
+    role: MessageRole = Field(..., description="Role of the message sender")
+    content: str = Field(..., description="Content of the message")
     metadata: Dict = Field(default_factory=dict, description="Additional metadata for the message")
 
-
-
-
-
-
-    
-#messages
-
+# ==========================
+# MESSAGE MODELS
+# ==========================
 from datetime import datetime
 from typing import Optional, Dict, List, Union
 from enum import Enum
@@ -146,15 +149,19 @@ class UpdateMessage(BaseModel):
     is_visible: Optional[bool] = Field(None, description="Update visibility status")
     metadata: Optional[Dict] = Field(None, description="Updated metadata")
 
-class Messages(MessageBase):
-    """Model for a complete message with ID"""
-    id: str = Field(..., alias="_id", description="Unique identifier for the message")
-
+class Messages(BaseModel):
+    session_id: str
+    content: str
+    role: MessageRole
+    metadata: Dict[str , Any]
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
     class Config:
-        populate_by_name = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+        arbitrary_types_allowed = True
+
+class MessageRole(str, Enum):
+    USER = "user"
+    ASSISTANT = "assistant"
 
 class MessageResponse(BaseModel):
     """Model for API responses containing message data"""
@@ -182,4 +189,52 @@ class MessageAnalytics(BaseModel):
     assistant_message_count: int
     average_response_time: Optional[float]
     session_duration: Optional[float]
+    WER : Optional[float] = Field(None, description="Word Error Rate")
     created_at: datetime = Field(default_factory=datetime.now)
+    
+    
+class MessageUserInterface(BaseModel):
+    """Model for message data in the user interface"""
+    session_id: str
+    user_id: str
+    session_title: str
+    created_at: datetime = Field(default_factory=datetime.now)
+    metadata: Dict = Field(default_factory=dict)
+    
+class MessageDetails(BaseModel):
+    """Model for message details in the user interface"""
+    session_id: str
+    user_id: str
+    role: str
+    content: List[str]
+    created_at: datetime = Field(default_factory=datetime.now)
+    metadata: Dict = Field(default_factory=dict)
+    
+
+
+class GetUserSessionsRequest(BaseModel):
+    pass
+class GetUserMessagesRequest(BaseModel):
+    session_id: str
+
+# ==========================
+# TAJWEED ANALYSIS MODELS
+# ==========================
+# Tajweed analysis models
+
+class TajweedRule(BaseModel):
+    rule: str
+    start_idx: int
+    end_idx: int
+    text: str
+    start_time: float
+    end_time: float
+    spans_words: Optional[bool] = False
+
+class WordAnalysis(BaseModel):
+    word: str
+    start_idx: int
+    end_idx: int
+    start_time: float
+    end_time: float
+    tajweed_rules: List[TajweedRule] = Field(default_factory=list)
