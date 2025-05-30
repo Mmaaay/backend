@@ -7,6 +7,9 @@ from models.Messages import MessageRole, Messages
 from models.Base import BaseDBModel
 
 
+# ==========================
+# USER MODELS
+# ==========================
 # USER
 class CreateUser(BaseModel):
     name: str
@@ -42,9 +45,11 @@ class UpdateUserPass(BaseModel):
     
     
 class changeUserPass(BaseModel):
-    
     new_password: str = Field(... , min_length=4)
     
+# ==========================
+# TOKEN MODELS
+# ==========================
 # Token
 class Token(BaseModel):
     user_id: str   
@@ -60,6 +65,9 @@ class Token(BaseModel):
 
     
     
+# ==========================
+# CHAT SESSION MODELS
+# ==========================
 #chat
 class ChatSessionBase(BaseDBModel):
     """Base model for chat session data"""
@@ -91,14 +99,9 @@ class CreateMessage(BaseModel):
     content: str = Field(..., description="Content of the message")
     metadata: Dict = Field(default_factory=dict, description="Additional metadata for the message")
 
-
-
-
-
-
-    
-#messages
-
+# ==========================
+# MESSAGE MODELS
+# ==========================
 from datetime import datetime
 from typing import Optional, Dict, List, Union
 from enum import Enum
@@ -213,3 +216,25 @@ class GetUserSessionsRequest(BaseModel):
     pass
 class GetUserMessagesRequest(BaseModel):
     session_id: str
+
+# ==========================
+# TAJWEED ANALYSIS MODELS
+# ==========================
+# Tajweed analysis models
+
+class TajweedRule(BaseModel):
+    rule: str
+    start_idx: int
+    end_idx: int
+    text: str
+    start_time: float
+    end_time: float
+    spans_words: Optional[bool] = False
+
+class WordAnalysis(BaseModel):
+    word: str
+    start_idx: int
+    end_idx: int
+    start_time: float
+    end_time: float
+    tajweed_rules: List[TajweedRule] = Field(default_factory=list)

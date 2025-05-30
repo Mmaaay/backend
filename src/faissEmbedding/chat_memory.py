@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 import sys
 from datetime import datetime
 from typing import AsyncGenerator, Dict, List, Tuple
+from constants import HUGGINGFACE_API_KEY
+
 from langgraph.checkpoint.mongodb import MongoDBSaver
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
@@ -77,7 +79,7 @@ prompt = ChatPromptTemplate.from_messages([
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.ERROR)
 handler = logging.StreamHandler()
-formatter = logging.Formatter('%(asctime)s - %name%s - %levelname%s - %message%s')
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
@@ -176,22 +178,23 @@ async def process_chat_stream(
     """Memory-optimized chat streaming"""
     try:
         try:
-            load_dotenv(dotenv_path=".env")
             
-            HUGGINGFACEHUB_API_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
-            print("HUGGINGFACEHUB_API_TOKEN", HUGGINGFACEHUB_API_TOKEN)
+            print("HUGGINGFACEHUB_API_TOKEN", HUGGINGFACE_API_KEY)
             llm = HuggingFaceEndpoint(
-                repo_id="silma-ai/SILMA-9B-Instruct-v1.0",
+                repo_id="microsoft/Phi-3-mini-4k-instruct",
                 task="text-generation",
                 do_sample=False,
                 repetition_penalty=1.03,
-                huggingfacehub_api_token=HUGGINGFACEHUB_API_TOKEN,
+                huggingfacehub_api_token=HUGGINGFACE_API_KEY,
+                
+                provider="hf-inference",
+                verbose=True,
             )
         except Exception as e:  
             logger.error(f"Failed to initialize HuggingFaceEndpoint: {e}")
             # Handle the error appropriately, e.g., retry or abort
-
         chat = ChatHuggingFace(llm=llm, verbose=True , kwargs={})
+        #to trigger a reload
         
         initial_scale_factor = 1  # Initialize the scale factor
         current_question = format_messages(messages) if isinstance(messages, str) else format_messages([messages[0]])

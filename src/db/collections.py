@@ -6,6 +6,7 @@ class Collections:
     _users: Optional[Collection] = None
     _chat_sessions: Optional[Collection] = None
     _messages: Optional[Collection] = None
+    _tajweed_sessions: Optional[Collection] = None
     
     @classmethod
     def users(cls) -> Collection:
@@ -24,3 +25,11 @@ class Collections:
         if cls._messages is None:
             cls._messages = MongoDBClient.get_db().messages
         return cls._messages
+    
+    @classmethod
+    def tajweed_sessions(cls) -> Collection:
+        if cls._tajweed_sessions is None:
+            cls._tajweed_sessions = MongoDBClient.get_db().tajweed_sessions
+        return cls._tajweed_sessions
+
+

@@ -1,3 +1,4 @@
+from torch.optim.lr_scheduler import LRScheduler
 import gc
 import logging
 import os
@@ -29,7 +30,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 load_dotenv()
-HF_TOKEN = os.getenv("HF_TOKEN")
+HF_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN")
 # Constants
 VECTOR_STORE_DIR = "tafasir_quran_faiss_vectorstore"
 VECTOR_STORE_PATH = Path(VECTOR_STORE_DIR).absolute()  # Use absolute path
