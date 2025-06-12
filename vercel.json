@@ -1,17 +1,10 @@
 {
-  "builds": [
-    {
-      "src": "src/server.py",
-      "use": "@vercel/python",
-      "config": {
-        "maxLambdaSize": "100mb"
-      }
+  "version": 2,
+  "builds": [{ "src": "src/server.py", "use": "@vercel/python" }],
+  "routes": [{ "src": "/(.*)", "dest": "src/server.py" }],
+  "build": {
+    "env": {
+      "PYTHON_VERSION": "3.10"
     }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "src/server.py"
-    }
-  ]
+  }
 }

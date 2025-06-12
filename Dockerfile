@@ -26,26 +26,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 ARG ENV_RELOAD
 ENV ENV_RELOAD="Production"
 
-ARG GEMENI_API_KEY
-ENV GEMENI_API_KEY=$GEMENI_API_KEY
-
-ARG GOOGLE_API_KEY
-ENV GOOGLE_API_KEY=$GOOGLE_API_KEY 
-
-ARG MONGODB_URI
-ENV MONGODB_URI=$MONGODB_URI
-
-ARG MONGODB_PASSWORD
-ENV MONGODB_PASSWORD=$MONGODB_PASSWORD
-
-ARG SUPABASE_API_KEY
-ENV SUPABASE_API_KEY=$SUPABASE_API_KEY
-
-ARG SUPABASE_PROJECT_URL
-ENV SUPABASE_PROJECT_URL=$SUPABASE_PROJECT_URL
-
-ARG HF_TOKEN
-ENV HF_TOKEN=$HF_TOKEN
+# Remove ARG/ENV for secrets, rely on .env file loading in app
 
 ARG DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
@@ -78,11 +59,11 @@ RUN pip install uv
 
 RUN pip install -U "huggingface_hub[cli]"
 # Copy requirements file
-COPY requirements.txt .
+COPY src/requirements.txt .
 
 
 # Simply copy the pre-generated file
-COPY requirements.lock .
+COPY src/requirements.lock .
 
 # Stage 1: Runtime image
 FROM nvcr.io/nvidia/cuda:12.5.1-runtime-ubuntu22.04 AS runtime
@@ -104,14 +85,6 @@ RUN apt-get update && apt-get install -y python3 python3-pip
 # Install huggingface_hub CLI
 RUN pip3 install -U "huggingface_hub[cli]"
 
-#set Hugging Face token
-ARG HF_TOKEN
-ENV HF_TOKEN=$HF_TOKEN
-
-
-# Authenticate with Hugging Face
-RUN echo "HF_TOKEN value: $HF_TOKEN" && \
-    huggingface-cli login --token $HF_TOKEN
 # Install build requirements for Python 3.12
 WORKDIR /app/build
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y install tzdata
@@ -172,8 +145,11 @@ RUN /opt/venv/bin/uv pip install --upgrade pip && /opt/venv/bin/uv pip install -
 COPY src ./src
 
 COPY tafasir_quran_faiss_vectorstore /app/build/tafasir_quran_faiss_vectorstore
+COPY tajweed /app/build/tajweed
 RUN chmod -R 775 /app/build/tafasir_quran_faiss_vectorstore && \
     chown -R appuser:appuser /app/build/tafasir_quran_faiss_vectorstore
+RUN chmod -R 775 /app/build/tajweed && \
+    chown -R appuser:appuser /app/build/tajweed    
 
 # Switch to non-root user
 USER appuser
